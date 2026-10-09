@@ -1,0 +1,45 @@
+robot:
+  port: /dev/tty.usbmodem5B141122411
+  id: my_awesome_follower_arm
+  cameras:
+    top:
+      index: 1
+      w: 640
+      h: 480
+    wrist:
+      index: 0
+      w: 640
+      h: 480
+teleop:
+  type: so101_leader
+  port: /dev/tty.usbmodem5B140300651
+  id: my_awesome_leader_arm
+data_collection:
+  repo_id: phawitbinabik/DS_pick_up_the_pink_bow
+  dataset_root: ./data/DS_pick_up_the_pink_bow
+  task: pick up the pink bow
+  num_episodes: 150
+  encoder_threads: 4
+  push_to_hub: false
+  resume: true
+  cameras:
+    top:
+      fps: 30
+      width: 320
+      height: 240
+      fourcc: MJPG
+    wrist:
+      fps: 30
+      width: 320
+      height: 240
+      fourcc: MJPG
+hf_repo_name: phawitbinabik
+gpu_server:
+  host: 100.87.242.52
+  user: jupyter-phawit
+  port: 22
+  conda_env: lerobot
+  work_dir: /home/jupyter-phawit/vla_benchmark_ws
+storage:
+  results_dir: data/results
+  images_dir: data/images
