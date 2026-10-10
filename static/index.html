@@ -298,7 +298,7 @@
   .cal-slider::-webkit-slider-thumb:active { transform: scale(1.15); cursor: grabbing; }
   .cal-slider.grip::-webkit-slider-thumb { background: #e8453c; border-color: #f06050; }
 
-  .cal-row-cams { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .cal-row-cams { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
   .cal-cam-box { background: #fff; border: 1px solid #d0d0d0; border-radius: 8px; padding: 10px; }
   .cal-cam-box h3 { font-size: 0.82rem; color: #1a73e8; font-weight: 600; margin-bottom: 6px; }
   .cal-cam-wrap { width: 100%; background: #111; border-radius: 6px; overflow: hidden; aspect-ratio: 4/3; }
@@ -448,14 +448,22 @@
             <input type="text" id="dcTeleopType" placeholder="so101_leader">
           </div>
         </div>
-        <div class="two-col">
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
           <div class="form-group">
             <label class="form-label">Top Camera Index</label>
-            <input type="number" id="dcCamTop" min="0" max="10" step="1" style="width:100px">
+            <input type="number" id="dcCamTop" min="0" max="10" step="1" style="width:80px">
           </div>
           <div class="form-group">
             <label class="form-label">Wrist Camera Index</label>
-            <input type="number" id="dcCamWrist" min="0" max="10" step="1" style="width:100px">
+            <input type="number" id="dcCamWrist" min="0" max="10" step="1" style="width:80px">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="dcCamExt3Enable" onchange="dcToggleExtCam()"> External3 Camera Index</label>
+            <input type="number" id="dcCamExt3" min="0" max="10" step="1" style="width:80px;opacity:0.4" placeholder="-" disabled>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="dcCamExt4Enable" onchange="dcToggleExtCam()"> External4 Camera Index</label>
+            <input type="number" id="dcCamExt4" min="0" max="10" step="1" style="width:80px;opacity:0.4" placeholder="-" disabled>
           </div>
         </div>
       </div>
@@ -467,7 +475,7 @@
           <input type="password" id="dcHfTokenInput" placeholder="hf_...">
         </div>
         <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
-          <button class="btn btn-sm" onclick="dcHfLogin()" style="background:#34a853;font-size:0.78rem;padding:4px 14px">Login</button>
+          <button class="btn btn-sm" id="dcHfLoginBtn" onclick="dcHfLogin()" style="background:#34a853;font-size:0.78rem;padding:4px 14px">Login</button>
           <button class="btn btn-sm btn-danger" id="dcHfLogoutBtn" onclick="dcHfLogout()" style="font-size:0.72rem;padding:2px 10px;display:none">Logout</button>
           <span id="dcHfLoginStatus" style="font-size:0.85rem;color:#888">Checking...</span>
         </div>
@@ -496,46 +504,18 @@
             <input type="password" id="dcSshPassword" placeholder="leave empty for SSH key">
           </div>
         </div>
-        <div class="two-col">
-          <div class="form-group">
-            <label class="form-label">Conda Env</label>
-            <input type="text" id="dcSshCondaEnv" placeholder="lerobot">
-          </div>
-          <div class="form-group">
-            <label class="form-label">W&B API Key <span style="font-weight:400;color:#aaa">(optional)</span></label>
-            <input type="password" id="dcSshWandbKey" placeholder="paste your wandb api key">
-          </div>
+        <div class="form-group">
+          <label class="form-label">Conda Env</label>
+          <input type="text" id="dcSshCondaEnv" placeholder="lerobot">
         </div>
         <div class="form-group">
           <label class="form-label">Working Directory</label>
           <input type="text" id="dcSshWorkDir" placeholder="~/vla_benchmark_ws">
         </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
-          <button class="btn btn-sm" onclick="dcTestSsh()" style="background:#1a73e8;font-size:0.78rem;padding:4px 14px">Test Connection</button>
-          <button class="btn btn-sm" id="dcFixEnvBtn" onclick="dcFixEnv()" style="background:#e8710a;font-size:0.78rem;padding:4px 14px;display:none">Fix Environment</button>
-          <span id="dcSshStatus" style="font-size:0.82rem;color:#888"></span>
+        <div class="form-group">
+          <label class="form-label">W&B API Key <span style="font-weight:400;color:#aaa">(optional)</span></label>
+          <input type="password" id="dcSshWandbKey" placeholder="paste your wandb api key">
         </div>
-        <div id="dcSshLog" style="display:none;margin-top:10px;font-family:'SF Mono','Menlo',monospace;font-size:0.78rem;background:#1e1e1e;color:#d4d4d4;border-radius:8px;padding:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.6"></div>
-        <details id="dcSshGuide" style="margin-top:10px">
-          <summary style="cursor:pointer;font-size:0.78rem;color:#1a73e8;font-weight:600;user-select:none">Manual Setup Guide</summary>
-          <div style="margin-top:8px;padding:10px 12px;background:#f5f5f5;border-radius:8px;font-size:0.75rem;line-height:1.7;color:#555">
-            <div style="font-weight:600;margin-bottom:6px">GPU Server Requirements:</div>
-            <div>1. <strong>SSH access</strong> — key-based or password</div>
-            <div>2. <strong>tmux</strong> — <code>sudo apt install -y tmux</code></div>
-            <div>3. <strong>Conda</strong> — install <a href="https://github.com/conda-forge/miniforge" target="_blank" style="color:#1a73e8">Miniforge</a>:</div>
-            <pre style="margin:4px 0 4px 16px;padding:6px 10px;background:#1e1e1e;color:#d4d4d4;border-radius:4px;font-size:0.72rem;overflow-x:auto">wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
-bash Miniforge3-Linux-x86_64.sh
-# restart shell after install</pre>
-            <div>4. <strong>Conda env + LeRobot</strong>:</div>
-            <pre style="margin:4px 0 4px 16px;padding:6px 10px;background:#1e1e1e;color:#d4d4d4;border-radius:4px;font-size:0.72rem;overflow-x:auto">conda create -n lerobot python=3.12 -y
-conda activate lerobot
-pip install lerobot</pre>
-            <div>5. <strong>Working Directory</strong>:</div>
-            <pre style="margin:4px 0 4px 16px;padding:6px 10px;background:#1e1e1e;color:#d4d4d4;border-radius:4px;font-size:0.72rem;overflow-x:auto">mkdir -p ~/vla_benchmark_ws/logs</pre>
-            <div>6. <strong>HuggingFace</strong> — token is auto-set from Setup > Hugging Face (no manual login needed)</div>
-            <div style="margin-top:6px;color:#888">Or click <strong>Fix Environment</strong> to auto-install tmux, conda env, and lerobot.</div>
-          </div>
-        </details>
       </div>
 
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
@@ -561,6 +541,39 @@ pip install lerobot</pre>
         <div id="dcVerifyPreview" style="margin-top:14px;display:none">
           <img id="dcVerifyImg" style="width:100%;border-radius:8px;border:1px solid #e0e0e0">
         </div>
+      </div>
+
+      <div class="config-card" style="margin-top:16px">
+        <h3>GPU Server Connection</h3>
+        <p style="font-size:0.85rem;color:#666;margin-bottom:14px">
+          Test SSH connection to the GPU server and verify the environment is ready for training.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn" onclick="dcTestSsh()" style="background:#1a73e8">Test Connection</button>
+          <button class="btn" id="dcFixEnvBtn" onclick="dcFixEnv()" style="background:#e8710a;display:none">Fix Environment</button>
+          <span id="dcSshStatus" style="font-size:0.82rem;color:#888"></span>
+        </div>
+        <div id="dcSshLog" style="display:none;margin-top:10px;font-family:'SF Mono','Menlo',monospace;font-size:0.78rem;background:#1e1e1e;color:#d4d4d4;border-radius:8px;padding:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.6"></div>
+        <details id="dcSshGuide" style="margin-top:10px">
+          <summary style="cursor:pointer;font-size:0.78rem;color:#1a73e8;font-weight:600;user-select:none">Manual Setup Guide</summary>
+          <div style="margin-top:8px;padding:10px 12px;background:#f5f5f5;border-radius:8px;font-size:0.75rem;line-height:1.7;color:#555">
+            <div style="font-weight:600;margin-bottom:6px">GPU Server Requirements:</div>
+            <div>1. <strong>SSH access</strong> — key-based or password</div>
+            <div>2. <strong>tmux</strong> — <code>sudo apt install -y tmux</code></div>
+            <div>3. <strong>Conda</strong> — install <a href="https://github.com/conda-forge/miniforge" target="_blank" style="color:#1a73e8">Miniforge</a>:</div>
+            <pre style="margin:4px 0 4px 16px;padding:6px 10px;background:#1e1e1e;color:#d4d4d4;border-radius:4px;font-size:0.72rem;overflow-x:auto">wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+bash Miniforge3-Linux-x86_64.sh
+# restart shell after install</pre>
+            <div>4. <strong>Conda env + LeRobot</strong>:</div>
+            <pre style="margin:4px 0 4px 16px;padding:6px 10px;background:#1e1e1e;color:#d4d4d4;border-radius:4px;font-size:0.72rem;overflow-x:auto">conda create -n lerobot python=3.12 -y
+conda activate lerobot
+pip install lerobot</pre>
+            <div>5. <strong>Working Directory</strong>:</div>
+            <pre style="margin:4px 0 4px 16px;padding:6px 10px;background:#1e1e1e;color:#d4d4d4;border-radius:4px;font-size:0.72rem;overflow-x:auto">mkdir -p ~/vla_benchmark_ws/logs</pre>
+            <div>6. <strong>HuggingFace</strong> — token is auto-set from Setup > Hugging Face (no manual login needed)</div>
+            <div style="margin-top:6px;color:#888">Or click <strong>Fix Environment</strong> to auto-install tmux, conda env, and lerobot.</div>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -619,7 +632,7 @@ pip install lerobot</pre>
 
 
   <div class="page" id="page-data-collecting">
-    <div class="page-title"><span>Data</span> Collecting</div>
+    <div class="page-title" style="display:flex;justify-content:space-between;align-items:center"><div><span>Data</span> Collecting</div><button class="btn btn-sm" onclick="dcResetFields()" style="background:#e8710a;font-size:0.75rem;padding:4px 12px">Reset</button></div>
 
       <div class="config-card">
         <h3>Dataset Settings</h3>
@@ -631,20 +644,9 @@ pip install lerobot</pre>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="font-size:0.82rem;color:#888">repo_id: <span id="dcRepoIdPreview" style="color:#555"></span></span>
             <span style="font-size:0.82rem;color:#888;margin-left:16px">root: <span id="dcDatasetRootPreview" style="color:#555"></span></span>
-            <button class="btn btn-sm" onclick="dcToggleEditPaths()" id="dcEditPathsBtn" style="font-size:0.72rem;padding:2px 8px;margin-left:8px">Edit</button>
           </div>
-          <div id="dcEditPathsFields" style="display:none">
-            <div class="two-col">
-              <div class="form-group">
-                <label class="form-label">Dataset Name (repo_id)</label>
-                <input type="text" id="dcRepoId" placeholder="phawitbinabik/so101-pick-place">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Dataset Root</label>
-                <input type="text" id="dcDatasetRoot" placeholder="./data/so101-pick-place">
-              </div>
-            </div>
-          </div>
+          <input type="hidden" id="dcRepoId">
+          <input type="hidden" id="dcDatasetRoot">
         </div>
       </div>
 
@@ -666,24 +668,7 @@ pip install lerobot</pre>
             <input type="number" id="dcEncoderThreads" value="4" min="1" max="16" style="width:80px">
           </div>
         </div>
-        <div style="margin-top:10px">
-          <h4 style="font-size:0.9rem;margin:0 0 8px 0;color:#555">Top Camera</h4>
-          <div style="display:flex;gap:14px;flex-wrap:wrap">
-            <div class="form-group"><label class="form-label">FPS</label><input type="number" id="dcTopFps" value="30" min="1" max="60" style="width:70px"></div>
-            <div class="form-group"><label class="form-label">Width</label><input type="number" id="dcTopWidth" value="320" min="160" max="1920" step="16" style="width:70px"></div>
-            <div class="form-group"><label class="form-label">Height</label><input type="number" id="dcTopHeight" value="240" min="120" max="1080" step="16" style="width:70px"></div>
-            <div class="form-group"><label class="form-label">FourCC</label><input type="text" id="dcTopFourcc" placeholder="e.g. MJPG" style="width:70px"></div>
-          </div>
-        </div>
-        <div style="margin-top:10px">
-          <h4 style="font-size:0.9rem;margin:0 0 8px 0;color:#555">Wrist Camera</h4>
-          <div style="display:flex;gap:14px;flex-wrap:wrap">
-            <div class="form-group"><label class="form-label">FPS</label><input type="number" id="dcWristFps" value="30" min="1" max="60" style="width:70px"></div>
-            <div class="form-group"><label class="form-label">Width</label><input type="number" id="dcWristWidth" value="320" min="160" max="1920" step="16" style="width:70px"></div>
-            <div class="form-group"><label class="form-label">Height</label><input type="number" id="dcWristHeight" value="240" min="120" max="1080" step="16" style="width:70px"></div>
-            <div class="form-group"><label class="form-label">FourCC</label><input type="text" id="dcWristFourcc" placeholder="e.g. MJPG" style="width:70px"></div>
-          </div>
-        </div>
+        <div id="dcCameraSettingsContainer"></div>
         <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
           <label style="font-size:0.85rem;display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="dcPushHub"> Push to Hugging Face Hub after recording
@@ -737,7 +722,7 @@ pip install lerobot</pre>
   </div><!-- /page-data-collecting -->
 
 
-  <div class="page" id="page-visualize">
+  <div class="page" id="page-visualize" style="max-width:none">
     <div class="page-title"><span>Visualize</span> Data</div>
 
     <div class="inner-tabs">
@@ -748,33 +733,51 @@ pip install lerobot</pre>
 
     <!-- Dataset selector row -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <select id="vizDatasetSelect" style="min-width:250px;padding:6px 10px;border-radius:6px;border:1px solid #d0d0d0;font-size:0.9rem">
+      <select id="vizDatasetSelect" style="flex:1;min-width:250px;padding:6px 10px;border-radius:6px;border:1px solid #d0d0d0;font-size:0.9rem">
         <option value="">-- Select dataset --</option>
       </select>
       <button class="btn btn-sm" onclick="vizRefreshDatasets()">Refresh</button>
       <button class="btn btn-sm" onclick="vizShowImport()" style="background:#546e7a;color:#fff">Import Local</button>
       <button class="btn btn-sm" onclick="vizShowDownloadHf()" style="background:#00897b;color:#fff">Download from HF</button>
       <button class="btn btn-sm" onclick="vizShowCombine()" style="background:#1a73e8">Combine</button>
-      <button class="btn btn-sm" id="vizRenameDsBtn" onclick="vizRenameDataset()" style="display:none;background:#607d8b;color:#fff">Edit Name</button>
-      <button class="btn btn-sm" id="vizEditTaskBtn" onclick="vizEditTask()" style="display:none;background:#5c6bc0;color:#fff">Edit Task</button>
-      <button class="btn btn-sm btn-danger" id="vizDeleteDsBtn" onclick="vizShowDeleteDataset()" style="display:none">Delete Dataset</button>
-      <button class="btn btn-sm" id="vizRemoveBeginningBtn" onclick="vizShowRemoveBeginning()" style="display:none;background:#8d6e63;color:#fff">Delete Beginning Frames</button>
-      <button class="btn btn-sm" id="vizRemoveCameraBtn" onclick="vizShowRemoveCamera()" style="display:none;background:#c62828;color:#fff">Remove Camera</button>
-      <button class="btn btn-sm" id="vizPushHfBtn" onclick="vizShowPushHf()" style="display:none;background:#ff9d00;color:#000">Push to HF</button>
-      <button class="btn btn-sm" id="vizTrainBtn" onclick="vizShowTrainGuide()" style="display:none;background:#34a853;color:#fff">Training</button>
       <span id="vizDatasetStatus" style="font-size:0.82rem;color:#888"></span>
-      <div style="flex:1"></div>
-      <button class="btn btn-sm" id="vizRandomBtn" onclick="vizShowRandomSubset()" style="display:none;background:#00695c;white-space:nowrap">Random &amp; Generate</button>
     </div>
 
     <div id="vizInfoSection" style="display:none">
       <!-- Info bar -->
       <div id="vizInfoGrid" style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.88rem;margin-bottom:16px"></div>
 
-      <!-- Main 2-column layout -->
+      <!-- Main 3-column layout -->
       <div style="display:flex;gap:16px;align-items:flex-start">
 
-        <!-- Left: player area -->
+        <!-- Left: actions panel -->
+        <div id="vizActionsPanel" style="width:200px;flex-shrink:0">
+          <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden">
+            <div style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #e0e0e0">
+              <span style="font-size:0.82rem;font-weight:700;color:#1a73e8">Actions</span>
+            </div>
+            <div style="padding:10px">
+              <div style="font-size:0.68rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">Edit</div>
+              <button class="btn btn-sm" id="vizRenameDsBtn" onclick="vizRenameDataset()" style="width:100%;margin-bottom:6px;background:#f8f9fa;color:#333;border:1px solid #e0e0e0;text-align:left;font-size:0.82rem;padding:8px 12px">&#9998; Edit Name</button>
+              <button class="btn btn-sm" id="vizEditTaskBtn" onclick="vizEditTask()" style="width:100%;margin-bottom:6px;background:#f8f9fa;color:#333;border:1px solid #e0e0e0;text-align:left;font-size:0.82rem;padding:8px 12px">&#128221; Edit Task</button>
+              <button class="btn btn-sm" id="vizRemoveBeginningBtn" onclick="vizShowRemoveBeginning()" style="width:100%;margin-bottom:6px;background:#f8f9fa;color:#333;border:1px solid #e0e0e0;text-align:left;font-size:0.82rem;padding:8px 12px">&#9986; Delete Beginning</button>
+              <button class="btn btn-sm" id="vizRemoveCameraBtn" onclick="vizShowRemoveCamera()" style="width:100%;margin-bottom:6px;background:#f8f9fa;color:#333;border:1px solid #e0e0e0;text-align:left;font-size:0.82rem;padding:8px 12px">&#128247; Remove Camera</button>
+
+              <div style="font-size:0.68rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.8px;margin:12px 0 8px">Process</div>
+              <button class="btn btn-sm" onclick="vizShowAugment()" style="width:100%;margin-bottom:6px;background:#f8f9fa;color:#333;border:1px solid #e0e0e0;text-align:left;font-size:0.82rem;padding:8px 12px">&#127912; Augment</button>
+              <button class="btn btn-sm" onclick="vizShowRemoveIdle()" style="width:100%;margin-bottom:6px;background:#f8f9fa;color:#333;border:1px solid #e0e0e0;text-align:left;font-size:0.82rem;padding:8px 12px">&#9986; Remove Idle</button>
+              <button class="btn btn-sm" id="vizRandomBtn" onclick="vizShowRandomSubset()" style="width:100%;margin-bottom:6px;background:#f8f9fa;color:#333;border:1px solid #e0e0e0;text-align:left;font-size:0.82rem;padding:8px 12px">&#127922; Random Sample</button>
+
+              <div style="font-size:0.68rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.8px;margin:12px 0 8px">Export</div>
+              <button class="btn btn-sm" id="vizPushHfBtn" onclick="vizShowPushHf()" style="width:100%;margin-bottom:6px;background:#f8f9fa;color:#333;border:1px solid #e0e0e0;text-align:left;font-size:0.82rem;padding:8px 12px">&#128640; Push to HF</button>
+
+              <div style="font-size:0.68rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.8px;margin:12px 0 8px">Danger</div>
+              <button class="btn btn-sm btn-danger" id="vizDeleteDsBtn" onclick="vizShowDeleteDataset()" style="width:100%;text-align:left;font-size:0.82rem;padding:8px 12px">&#128465; Delete Dataset</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Center: player area -->
         <div style="flex:1;min-width:0">
           <!-- Playback controls -->
           <div class="config-card" style="margin-bottom:12px">
@@ -805,7 +808,7 @@ pip install lerobot</pre>
           </div>
 </div>
 
-        <!-- Right: episode list -->
+        <!-- Middle: episode list -->
         <div style="width:220px;flex-shrink:0">
           <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden">
             <div style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #e0e0e0;display:flex;align-items:center;justify-content:space-between">
@@ -819,7 +822,6 @@ pip install lerobot</pre>
             </div>
             <div id="vizEpisodeList" style="max-height:calc(100vh - 260px);overflow-y:auto"></div>
           </div>
-          <!-- hidden select for compatibility -->
           <select id="vizEpisodeSelect" style="display:none"></select>
         </div>
 
@@ -1492,9 +1494,7 @@ Effective: ~370ms / 50 = 7.4ms per action (amortized)</pre>
             <div class="form-group">
               <label class="form-label">Cameras</label>
               <select id="evalCamCount" class="form-input" onchange="evalUpdateCmd();evalConfigChanged()">
-                <option value="2" selected>2 (top+wrist)</option>
-                <option value="1-top">1 (top)</option>
-                <option value="1-wrist">1 (wrist)</option>
+                <option value="all" selected>All enabled</option>
               </select>
             </div>
             <div class="form-group">
@@ -1843,6 +1843,7 @@ async function init() {
     cfg = data.config || data;
     // Data Collection tab
     dcPopulate();
+    evalBuildCamOptions();
     // Visualize tab
     vizRefreshDatasets();
   } catch(e) {
@@ -2112,17 +2113,6 @@ function dcPopulate() {
   document.getElementById('dcTask').value = dc.task || '';
   document.getElementById('dcNumEpisodes').value = dc.num_episodes ?? 50;
   document.getElementById('dcEncoderThreads').value = dc.encoder_threads ?? 4;
-  // Per-camera settings
-  const topCam = dc.cameras?.top || {};
-  const wristCam = dc.cameras?.wrist || {};
-  document.getElementById('dcTopFps').value = topCam.fps ?? dc.fps ?? 30;
-  document.getElementById('dcTopWidth').value = topCam.width ?? dc.cam_width ?? 320;
-  document.getElementById('dcTopHeight').value = topCam.height ?? dc.cam_height ?? 240;
-  document.getElementById('dcTopFourcc').value = topCam.fourcc || 'MJPG';
-  document.getElementById('dcWristFps').value = wristCam.fps ?? dc.fps ?? 30;
-  document.getElementById('dcWristWidth').value = wristCam.width ?? dc.cam_width ?? 320;
-  document.getElementById('dcWristHeight').value = wristCam.height ?? dc.cam_height ?? 240;
-  document.getElementById('dcWristFourcc').value = wristCam.fourcc || 'MJPG';
   document.getElementById('dcPushHub').checked = dc.push_to_hub || false;
   document.getElementById('dcResume').checked = dc.resume !== undefined ? dc.resume : true;
   // Hardware fields
@@ -2135,6 +2125,19 @@ function dcPopulate() {
   document.getElementById('dcTeleopId').value = tel.id || 'my_awesome_leader_arm';
   document.getElementById('dcCamTop').value = rob.cameras?.top?.index ?? 0;
   document.getElementById('dcCamWrist').value = rob.cameras?.wrist?.index ?? 0;
+  // External cameras
+  const ext3 = rob.cameras?.external3;
+  const ext4 = rob.cameras?.external4;
+  document.getElementById('dcCamExt3Enable').checked = !!ext3;
+  document.getElementById('dcCamExt3').value = ext3 ? ext3.index : '';
+  document.getElementById('dcCamExt3').disabled = !ext3;
+  document.getElementById('dcCamExt3').style.opacity = ext3 ? '1' : '0.4';
+  document.getElementById('dcCamExt4Enable').checked = !!ext4;
+  document.getElementById('dcCamExt4').value = ext4 ? ext4.index : '';
+  document.getElementById('dcCamExt4').disabled = !ext4;
+  document.getElementById('dcCamExt4').style.opacity = ext4 ? '1' : '0.4';
+  // Build per-camera recording settings
+  dcBuildCameraSettings();
   // GPU server SSH settings
   const gpu = cfg.gpu_server || {};
   document.getElementById('dcSshHost').value = gpu.host || '';
@@ -2216,9 +2219,11 @@ async function dcFixEnv() {
 
 async function dcCheckHfLogin() {
   const st = document.getElementById('dcHfLoginStatus');
+  const loginBtn = document.getElementById('dcHfLoginBtn');
   const logoutBtn = document.getElementById('dcHfLogoutBtn');
   st.textContent = 'Checking...';
   st.style.color = '#888';
+  loginBtn.style.display = '';
   logoutBtn.style.display = 'none';
   try {
     const r = await fetch('/api/hf-whoami');
@@ -2226,6 +2231,7 @@ async function dcCheckHfLogin() {
     if (d.ok && d.username) {
       st.textContent = 'Logged in as ' + d.username;
       st.style.color = '#1e8e3e';
+      loginBtn.style.display = 'none';
       logoutBtn.style.display = '';
       // Show saved token (masked)
       if (d.hf_token_masked) {
@@ -2307,30 +2313,90 @@ async function dcHfLogout() {
   dcCheckHfLogin();
 }
 
+function dcGetEnabledCameras() {
+  const cams = ['top', 'wrist'];
+  if (document.getElementById('dcCamExt3Enable').checked) cams.push('external3');
+  if (document.getElementById('dcCamExt4Enable').checked) cams.push('external4');
+  return cams;
+}
+
+function dcNextCamIndex() {
+  const used = [
+    parseInt(document.getElementById('dcCamTop').value) || 0,
+    parseInt(document.getElementById('dcCamWrist').value) || 0,
+  ];
+  const e3 = document.getElementById('dcCamExt3');
+  if (!e3.disabled && e3.value !== '') used.push(parseInt(e3.value));
+  let next = 0;
+  while (used.includes(next)) next++;
+  return next;
+}
+
+function dcToggleExtCam() {
+  const e3 = document.getElementById('dcCamExt3Enable').checked;
+  const e4 = document.getElementById('dcCamExt4Enable').checked;
+  document.getElementById('dcCamExt3').disabled = !e3;
+  document.getElementById('dcCamExt3').style.opacity = e3 ? '1' : '0.4';
+  if (e3 && document.getElementById('dcCamExt3').value === '') {
+    document.getElementById('dcCamExt3').value = dcNextCamIndex();
+  }
+  if (!e3) document.getElementById('dcCamExt3').value = '';
+  document.getElementById('dcCamExt4').disabled = !e4;
+  document.getElementById('dcCamExt4').style.opacity = e4 ? '1' : '0.4';
+  if (e4 && document.getElementById('dcCamExt4').value === '') {
+    document.getElementById('dcCamExt4').value = dcNextCamIndex();
+  }
+  if (!e4) document.getElementById('dcCamExt4').value = '';
+  dcBuildCameraSettings();
+  evalBuildCamOptions();
+}
+
+function dcBuildCameraSettings() {
+  const dc = cfg.data_collection || {};
+  const dcCams = dc.cameras || {};
+  const container = document.getElementById('dcCameraSettingsContainer');
+  const enabled = dcGetEnabledCameras();
+  const labels = {top: 'Top Camera', wrist: 'Wrist Camera', external3: 'External3 Camera', external4: 'External4 Camera'};
+  container.innerHTML = enabled.map(cam => {
+    const c = dcCams[cam] || {};
+    return `<div style="margin-top:10px">
+      <h4 style="font-size:0.9rem;margin:0 0 8px 0;color:#555">${labels[cam]}</h4>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <div class="form-group"><label class="form-label">FPS</label><input type="number" id="dc_${cam}_fps" value="${c.fps ?? 30}" min="1" max="60" style="width:70px"></div>
+        <div class="form-group"><label class="form-label">Width</label><input type="number" id="dc_${cam}_width" value="${c.width ?? 320}" min="160" max="1920" step="16" style="width:70px"></div>
+        <div class="form-group"><label class="form-label">Height</label><input type="number" id="dc_${cam}_height" value="${c.height ?? 240}" min="120" max="1080" step="16" style="width:70px"></div>
+        <div class="form-group"><label class="form-label">FourCC</label><input type="text" id="dc_${cam}_fourcc" value="${c.fourcc || 'MJPG'}" placeholder="e.g. MJPG" style="width:70px"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function evalBuildCamOptions() {
+  const sel = document.getElementById('evalCamCount');
+  const prev = sel.value;
+  const enabled = dcGetEnabledCameras();
+  let html = '<option value="all">All enabled (' + enabled.join('+') + ')</option>';
+  enabled.forEach(c => { html += `<option value="1-${c}">1 (${c})</option>`; });
+  sel.innerHTML = html;
+  // restore previous selection if still valid
+  const opts = Array.from(sel.options).map(o => o.value);
+  sel.value = opts.includes(prev) ? prev : 'all';
+}
+
+function dcResetFields() {
+  document.getElementById('dcDatasetName').value = '';
+  document.getElementById('dcTask').value = '';
+  dcAutoFillDataset();
+}
+
 function dcAutoFillDataset() {
   const name = document.getElementById('dcDatasetName').value.trim();
   const repoId = name ? `phawitbinabik/${name}` : '';
   const root = name ? `./data/${name}` : '';
   document.getElementById('dcRepoIdPreview').textContent = repoId || '—';
   document.getElementById('dcDatasetRootPreview').textContent = root || '—';
-  // Only auto-fill if not in edit mode
-  if (document.getElementById('dcEditPathsFields').style.display === 'none') {
-    document.getElementById('dcRepoId').value = repoId;
-    document.getElementById('dcDatasetRoot').value = root;
-  }
-}
-
-function dcToggleEditPaths() {
-  const fields = document.getElementById('dcEditPathsFields');
-  const btn = document.getElementById('dcEditPathsBtn');
-  if (fields.style.display === 'none') {
-    fields.style.display = 'block';
-    btn.textContent = 'Auto';
-  } else {
-    fields.style.display = 'none';
-    btn.textContent = 'Edit';
-    dcAutoFillDataset(); // re-apply auto values
-  }
+  document.getElementById('dcRepoId').value = repoId;
+  document.getElementById('dcDatasetRoot').value = root;
 }
 
 async function dcSaveConfig() {
@@ -2341,10 +2407,19 @@ async function dcSaveConfig() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        robot_port: document.getElementById('dcRobotPort').value,
-        robot_id: document.getElementById('dcRobotId').value,
-        camera_top_index: parseInt(document.getElementById('dcCamTop').value),
-        camera_wrist_index: parseInt(document.getElementById('dcCamWrist').value),
+        robot: {
+          port: document.getElementById('dcRobotPort').value,
+          id: document.getElementById('dcRobotId').value,
+          cameras: (() => {
+            const c = {
+              top: {index: parseInt(document.getElementById('dcCamTop').value), w: 640, h: 480},
+              wrist: {index: parseInt(document.getElementById('dcCamWrist').value), w: 640, h: 480},
+            };
+            if (document.getElementById('dcCamExt3Enable').checked) c.external3 = {index: parseInt(document.getElementById('dcCamExt3').value), w: 640, h: 480};
+            if (document.getElementById('dcCamExt4Enable').checked) c.external4 = {index: parseInt(document.getElementById('dcCamExt4').value), w: 640, h: 480};
+            return c;
+          })(),
+        },
         teleop: {
           type: document.getElementById('dcTeleopType').value,
           port: document.getElementById('dcTeleopPort').value,
@@ -2367,20 +2442,19 @@ async function dcSaveConfig() {
           encoder_threads: parseInt(document.getElementById('dcEncoderThreads').value) || 4,
           push_to_hub: document.getElementById('dcPushHub').checked,
           resume: document.getElementById('dcResume').checked,
-          cameras: {
-            top: {
-              fps: parseInt(document.getElementById('dcTopFps').value) || 30,
-              width: parseInt(document.getElementById('dcTopWidth').value) || 320,
-              height: parseInt(document.getElementById('dcTopHeight').value) || 240,
-              ...(document.getElementById('dcTopFourcc').value.trim() && {fourcc: document.getElementById('dcTopFourcc').value.trim()}),
-            },
-            wrist: {
-              fps: parseInt(document.getElementById('dcWristFps').value) || 30,
-              width: parseInt(document.getElementById('dcWristWidth').value) || 320,
-              height: parseInt(document.getElementById('dcWristHeight').value) || 240,
-              ...(document.getElementById('dcWristFourcc').value.trim() && {fourcc: document.getElementById('dcWristFourcc').value.trim()}),
-            },
-          },
+          cameras: (() => {
+            const cams = {};
+            dcGetEnabledCameras().forEach(cam => {
+              const el = id => document.getElementById(`dc_${cam}_${id}`);
+              cams[cam] = {
+                fps: parseInt(el('fps')?.value) || 30,
+                width: parseInt(el('width')?.value) || 320,
+                height: parseInt(el('height')?.value) || 240,
+                ...(el('fourcc')?.value?.trim() && {fourcc: el('fourcc').value.trim()}),
+              };
+            });
+            return cams;
+          })(),
         }
       })
     });
@@ -2926,14 +3000,6 @@ async function vizRefreshDatasets() {
 document.getElementById('vizDatasetSelect').addEventListener('change', async function() {
   const name = this.value;
   const infoSection = document.getElementById('vizInfoSection');
-  document.getElementById('vizRenameDsBtn').style.display = name ? '' : 'none';
-  document.getElementById('vizEditTaskBtn').style.display = name ? '' : 'none';
-  document.getElementById('vizDeleteDsBtn').style.display = name ? '' : 'none';
-      document.getElementById('vizRemoveBeginningBtn').style.display = name ? '' : 'none';
-  document.getElementById('vizRemoveCameraBtn').style.display = 'none';
-    document.getElementById('vizPushHfBtn').style.display = name ? '' : 'none';
-  document.getElementById('vizTrainBtn').style.display = name ? '' : 'none';
-  document.getElementById('vizRandomBtn').style.display = 'none';
   if (!name) { infoSection.style.display = 'none'; return; }
   vizCurrentDataset = name;
   try {
@@ -2944,7 +3010,6 @@ document.getElementById('vizDatasetSelect').addEventListener('change', async fun
     vizCurrentCameras = Object.entries(info.features || {})
       .filter(([key, feature]) => key.startsWith('observation.images.') && feature && feature.dtype === 'video')
       .map(([key]) => key);
-    document.getElementById('vizRemoveCameraBtn').style.display = vizCurrentCameras.length > 1 ? '' : 'none';
     vizFps = info.fps || 30;
     // Info grid
     const grid = document.getElementById('vizInfoGrid');
@@ -2952,8 +3017,6 @@ document.getElementById('vizDatasetSelect').addEventListener('change', async fun
     const task = allTasks.length ? allTasks[0] : '-';
     vizCurrentTask = task;
     vizAugInfo = d.augmentation || null;
-    // split button removed in VLA-Benchmark
-    document.getElementById('vizRandomBtn').style.display = '';
 
     // Fetch episodes metadata (timestamps for video seeking)
     const epR = await fetch(`/api/datasets/${name}/episodes`);
@@ -3287,6 +3350,157 @@ async function vizDeleteSelected() {
 
 // ── Random Subset ──
 
+async function vizShowRemoveIdle() {
+  if (!vizCurrentDataset) return;
+  const body = document.getElementById('modalBody');
+  body.innerHTML = `
+    <h3 style="margin-top:0;margin-bottom:12px">Remove Idle Frames</h3>
+    <p style="font-size:0.85rem;color:#666;margin-bottom:14px">Create a new dataset with idle frames removed from each episode's start/end.</p>
+    <div class="form-group" style="margin-bottom:10px">
+      <label class="form-label">New Dataset Name</label>
+      <input type="text" id="removeIdleName" value="${vizCurrentDataset}_trimmed" placeholder="new-dataset-name">
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Remove from</label>
+      <select id="removeIdleMode" style="padding:6px 10px;border-radius:6px;border:1px solid #d0d0d0;font-size:0.9rem">
+        <option value="both">Both start &amp; end</option>
+        <option value="start">Start only</option>
+        <option value="end">End only</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="btn" id="removeIdleBtn" onclick="vizDoRemoveIdle()" style="background:#8d6e63">Remove Idle</button>
+      <button class="btn btn-sm" onclick="closeModal()" style="background:#eee;color:#444">Cancel</button>
+      <span id="removeIdleStatus" style="font-size:0.85rem;color:#888"></span>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('visible');
+}
+
+async function vizDoRemoveIdle() {
+  const name = document.getElementById('removeIdleName').value.trim();
+  const mode = document.getElementById('removeIdleMode').value;
+  const st = document.getElementById('removeIdleStatus');
+  const btn = document.getElementById('removeIdleBtn');
+  if (!name) { st.textContent = 'Enter a name'; st.style.color = '#d93025'; return; }
+  btn.disabled = true;
+  st.textContent = 'Processing...'; st.style.color = '#888';
+  try {
+    const r = await fetch(`/api/datasets/${vizCurrentDataset}/remove-idle`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({new_name: name, mode}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      st.textContent = `Done! ${d.episodes} eps, ${d.frames} frames (removed ${d.removed_frames} frames)`;
+      st.style.color = '#34a853';
+      vizRefreshDatasets();
+    } else {
+      st.textContent = d.error; st.style.color = '#d93025';
+    }
+  } catch(e) { st.textContent = e.message; st.style.color = '#d93025'; }
+  btn.disabled = false;
+}
+
+async function vizShowAugment() {
+  if (!vizCurrentDataset) return;
+  try {
+    const infoR = await fetch(`/api/datasets/${vizCurrentDataset}/info`);
+    const infoD = await infoR.json();
+    const totalEps = infoD.ok ? infoD.info.total_episodes : 0;
+    const body = document.getElementById('modalBody');
+    body.innerHTML = `
+      <h3 style="margin-top:0;margin-bottom:12px">Data Augmentation</h3>
+      <p style="font-size:0.85rem;color:#666;margin-bottom:14px">Create a new augmented dataset from <strong>${vizCurrentDataset}</strong> (${totalEps} episodes).</p>
+      <div class="two-col" style="margin-bottom:10px">
+        <div class="form-group">
+          <label class="form-label">New Dataset Name</label>
+          <input type="text" id="augName" value="${vizCurrentDataset}_aug" placeholder="augmented-dataset-name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target Episodes</label>
+          <input type="number" id="augTargetEps" value="${totalEps * 3}" min="1" style="width:100px">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label">Intensity (1-5)</label>
+        <input type="range" id="augIntensity" min="1" max="5" value="3" style="width:200px">
+        <span id="augIntensityVal" style="font-size:0.85rem;font-weight:600;margin-left:8px">3</span>
+      </div>
+      <div style="margin-bottom:14px">
+        <label class="form-label">Techniques</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.85rem">
+          <label><input type="checkbox" id="augCamera" checked> Camera shift</label>
+          <label><input type="checkbox" id="augLight" checked> Light/quality</label>
+          <label><input type="checkbox" id="augRobot" checked> Robot noise</label>
+          <label><input type="checkbox" id="augLang"> Language variation</label>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn" id="augStartBtn" onclick="vizDoAugment()" style="background:#e65100">Start Augmentation</button>
+        <button class="btn btn-sm" onclick="closeModal()" style="background:#eee;color:#444">Cancel</button>
+        <span id="augStatus" style="font-size:0.85rem;color:#888"></span>
+      </div>
+      <div id="augProgress" style="display:none;margin-top:12px">
+        <div style="height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden">
+          <div id="augBar" style="height:100%;width:0%;background:#e65100;transition:width 0.3s"></div>
+        </div>
+        <div id="augDetail" style="font-size:0.78rem;color:#888;margin-top:4px"></div>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('visible');
+    document.getElementById('augIntensity').addEventListener('input', function() {
+      document.getElementById('augIntensityVal').textContent = this.value;
+    });
+  } catch(e) {}
+}
+
+async function vizDoAugment() {
+  const name = document.getElementById('augName').value.trim();
+  const target = parseInt(document.getElementById('augTargetEps').value);
+  const intensity = parseInt(document.getElementById('augIntensity').value);
+  const st = document.getElementById('augStatus');
+  const btn = document.getElementById('augStartBtn');
+  if (!name) { st.textContent = 'Enter a name'; st.style.color = '#d93025'; return; }
+  if (!target || target < 1) { st.textContent = 'Invalid target episodes'; st.style.color = '#d93025'; return; }
+  btn.disabled = true;
+  st.textContent = 'Starting...'; st.style.color = '#888';
+  const techniques = {
+    camera_shift: {enabled: document.getElementById('augCamera').checked, perspective: true, affine: true, rotation: true},
+    light_quality: {enabled: document.getElementById('augLight').checked, brightness: true, contrast: true, saturation: true, color_jitter: true, noise: true, blur: true},
+    robot_noise: {enabled: document.getElementById('augRobot').checked, random_start: true, initial_noise: true, trajectory_jitter: true},
+    language: {enabled: document.getElementById('augLang').checked, synonym: true, paraphrase: true},
+  };
+  try {
+    const r = await fetch(`/api/datasets/${vizCurrentDataset}/augment`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, target_episodes: target, intensity, techniques}),
+    });
+    const d = await r.json();
+    if (!d.ok) { st.textContent = d.error; st.style.color = '#d93025'; btn.disabled = false; return; }
+    document.getElementById('augProgress').style.display = '';
+    const poll = setInterval(async () => {
+      try {
+        const r2 = await fetch('/api/augment/status');
+        const s = await r2.json();
+        document.getElementById('augBar').style.width = s.progress + '%';
+        document.getElementById('augDetail').textContent = s.status || '';
+        st.textContent = s.status || '';
+        if (s.error) {
+          st.textContent = s.error; st.style.color = '#d93025';
+          clearInterval(poll); btn.disabled = false;
+        } else if (!s.running && s.progress >= 100) {
+          st.style.color = '#34a853';
+          clearInterval(poll);
+          vizRefreshDatasets();
+        }
+      } catch(e) {}
+    }, 1000);
+  } catch(e) { st.textContent = e.message; st.style.color = '#d93025'; btn.disabled = false; }
+}
+
 async function vizShowRandomSubset() {
   if (!vizCurrentDataset) return;
   // Fetch dataset info for total episodes
@@ -3542,11 +3756,6 @@ async function vizDoDeleteDataset() {
       closeModal();
       vizCurrentDataset = null;
       document.getElementById('vizInfoSection').style.display = 'none';
-      document.getElementById('vizRenameDsBtn').style.display = 'none';
-      document.getElementById('vizEditTaskBtn').style.display = 'none';
-      document.getElementById('vizDeleteDsBtn').style.display = 'none';
-                  document.getElementById('vizPushHfBtn').style.display = 'none';
-      document.getElementById('vizTrainBtn').style.display = 'none';
       vizRefreshDatasets();
     } else {
       st.textContent = d.error || 'Error';
@@ -3667,10 +3876,13 @@ function infUpdateCommands() {
   const fps = document.getElementById('infFps').value || '30';
   const display = document.getElementById('infDisplay').value;
 
-  const robotPort = cfg.robot_port || '/dev/tty.usbmodem5B141122411';
-  const robotId = cfg.robot_id || 'my_awesome_follower_arm';
-  const camTop = cfg.camera_top_index ?? 0;
-  const camWrist = cfg.camera_wrist_index ?? 0;
+  const rob = cfg.robot || {};
+  const robotPort = rob.port || '/dev/tty.usbmodem5B141122411';
+  const robotId = rob.id || 'my_awesome_follower_arm';
+  const robCams = rob.cameras || {};
+  const camParts = Object.entries(robCams).map(([name, c]) =>
+    `    ${name}: {type: opencv, index_or_path: ${c.index ?? 0}, width: 320, height: 240, fps: ${fps}}`
+  ).join(',\n');
 
   // Step 1: Download
   const cmd1 = [
@@ -3686,8 +3898,7 @@ function infUpdateCommands() {
     `  --robot.port=${robotPort} \\`,
     `  --robot.id=${robotId} \\`,
     `  --robot.cameras='{`,
-    `    top: {type: opencv, index_or_path: ${camTop}, width: 320, height: 240, fps: ${fps}},`,
-    `    wrist: {type: opencv, index_or_path: ${camWrist}, width: 320, height: 240, fps: ${fps}}`,
+    camParts,
     `  }' \\`,
     `  --task="${task}" \\`,
     `  --fps=${fps} \\`,
@@ -3702,8 +3913,7 @@ function infUpdateCommands() {
     `  --robot.port=${robotPort} \\`,
     `  --robot.id=${robotId} \\`,
     `  --robot.cameras='{`,
-    `    top: {type: opencv, index_or_path: ${camTop}, width: 320, height: 240, fps: ${fps}},`,
-    `    wrist: {type: opencv, index_or_path: ${camWrist}, width: 320, height: 240, fps: ${fps}}`,
+    camParts,
     `  }' \\`,
     `  --task="${task}" \\`,
     `  --fps=${fps} \\`,
@@ -5385,7 +5595,7 @@ async function vizLoadEpisode() {
   const epInfo = document.getElementById('vizEpisodeInfo');
   epInfo.textContent = 'Loading frames...';
   try {
-    const r = await fetch(`/api/datasets/${name}/frames/${ep}`);
+    const r = await fetch(`/api/datasets/${name}/episode/${ep}`);
     const d = await r.json();
     if (!d.ok || !d.frames.length) { epInfo.textContent = 'No frame data'; return; }
     vizFrameCount = d.frames.length;
@@ -5865,7 +6075,7 @@ function _evalGetCurrentConfig() {
     width: parseInt(document.getElementById('evalWidth').value) || 320,
     height: parseInt(document.getElementById('evalHeight').value) || 240,
     fourcc: document.getElementById('evalFourcc').value.toUpperCase().trim(),
-    cam_count: document.getElementById('evalCamCount').value || '2',
+    cam_count: document.getElementById('evalCamCount').value || 'all',
     record_video: document.getElementById('evalRecordVideo').checked,
     chunk_size: parseInt(document.getElementById('evalChunkSize').value) || null,
     n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || null,
@@ -6081,20 +6291,25 @@ function evalUpdateCmd() {
   const width = document.getElementById('evalWidth').value || '320';
   const height = document.getElementById('evalHeight').value || '240';
   const fourcc = document.getElementById('evalFourcc').value.toUpperCase().trim();
-  const robotPort = cfg.robot_port || '';
-  const robotId = cfg.robot_id || '';
-  const camTop = cfg.camera_top_index ?? 0;
-  const camWrist = cfg.camera_wrist_index ?? 0;
+  const rob = cfg.robot || {};
+  const robotPort = rob.port || '';
+  const robotId = rob.id || '';
+  const robCams = rob.cameras || {};
   const camCountVal = document.getElementById('evalCamCount').value;
   const fourccPart = fourcc ? `, fourcc: ${fourcc}` : '';
-  let camerasStr;
-  if (camCountVal === '1-wrist') {
-    camerasStr = `'{wrist: {type: opencv, index_or_path: ${camWrist}, width: ${width}, height: ${height}, fps: ${fps}${fourccPart}}}'`;
-  } else if (camCountVal === '1-top') {
-    camerasStr = `'{top: {type: opencv, index_or_path: ${camTop}, width: ${width}, height: ${height}, fps: ${fps}${fourccPart}}}'`;
+  let selectedCams;
+  if (camCountVal === 'all') {
+    selectedCams = Object.entries(robCams);
+  } else if (camCountVal.startsWith('1-')) {
+    const name = camCountVal.slice(2);
+    selectedCams = robCams[name] ? [[name, robCams[name]]] : Object.entries(robCams).slice(0, 1);
   } else {
-    camerasStr = `'{top: {type: opencv, index_or_path: ${camTop}, width: ${width}, height: ${height}, fps: ${fps}${fourccPart}}, wrist: {type: opencv, index_or_path: ${camWrist}, width: ${width}, height: ${height}, fps: ${fps}${fourccPart}}}'`;
+    selectedCams = Object.entries(robCams);
   }
+  const camParts = selectedCams.map(([name, c]) =>
+    `${name}: {type: opencv, index_or_path: ${c.index ?? 0}, width: ${width}, height: ${height}, fps: ${fps}${fourccPart}}`
+  ).join(', ');
+  const camerasStr = `'{${camParts}}'`;
   let cmd = `lerobot-rollout \\\n`;
   cmd += `  --robot.type=so101_follower \\\n`;
   cmd += `  --robot.port=${robotPort} \\\n`;
@@ -6344,7 +6559,7 @@ async function _evalNewSession() {
     created: new Date().toISOString(),
     config: {
       duration: parseInt(document.getElementById('evalDuration').value) || 12,
-      cameras: document.getElementById('evalCamCount').value || '2',
+      cameras: document.getElementById('evalCamCount').value || 'all',
       width: parseInt(document.getElementById('evalWidth').value) || 320,
       height: parseInt(document.getElementById('evalHeight').value) || 240,
       fourcc: document.getElementById('evalFourcc').value.toUpperCase().trim() || null,
@@ -6405,7 +6620,7 @@ function _evalBuildBody() {
     width: parseInt(document.getElementById('evalWidth').value) || 320,
     height: parseInt(document.getElementById('evalHeight').value) || 240,
     fourcc: document.getElementById('evalFourcc').value.toUpperCase().trim(),
-    cam_count: document.getElementById('evalCamCount').value || '2',
+    cam_count: document.getElementById('evalCamCount').value || 'all',
     chunk_size: parseInt(document.getElementById('evalChunkSize').value) || 0,
     n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || 0,
   };
@@ -6428,7 +6643,7 @@ async function _evalStartVideoRecording() {
         width: parseInt(document.getElementById('evalWidth').value) || 320,
         height: parseInt(document.getElementById('evalHeight').value) || 240,
         fps: parseInt(document.getElementById('evalFps').value) || 30,
-        cam_count: document.getElementById('evalCamCount').value || '2',
+        cam_count: document.getElementById('evalCamCount').value || 'all',
       }),
     });
     const d = await r.json();
@@ -6579,7 +6794,7 @@ async function evalRecordResult(result) {
     config: {
       task: document.getElementById('evalTask').value,
       duration: parseInt(document.getElementById('evalDuration').value) || 12,
-      cameras: document.getElementById('evalCamCount').value || '2',
+      cameras: document.getElementById('evalCamCount').value || 'all',
       fps: parseInt(document.getElementById('evalFps').value) || 30,
       width: parseInt(document.getElementById('evalWidth').value) || 320,
       height: parseInt(document.getElementById('evalHeight').value) || 240,

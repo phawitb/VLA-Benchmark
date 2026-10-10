@@ -491,7 +491,7 @@ async def get_episode_data(name: str, ep_idx: int):
                         d = tbl.to_pydict()
                         for i in range(len(d.get("episode_index", []))):
                             if d["episode_index"][i] == ep_idx:
-                                for cam in ["observation.images.top", "observation.images.wrist"]:
+                                for cam in _get_camera_keys(info):
                                     ck = f"videos/{cam}/chunk_index"
                                     fk = f"videos/{cam}/file_index"
                                     ft = f"videos/{cam}/from_timestamp"
@@ -559,7 +559,13 @@ def _compute_stats_json(data_rows, new_dir):
             "q90": np.quantile(arr, 0.90, axis=0).tolist(),
             "q99": np.quantile(arr, 0.99, axis=0).tolist(),
         }
-    for cam in ["observation.images.top", "observation.images.wrist"]:
+    # Detect cameras from info.json
+    info_file = new_dir / "meta" / "info.json"
+    if info_file.exists():
+        cam_keys = _get_camera_keys(json.loads(info_file.read_text()))
+    else:
+        cam_keys = ["observation.images.top", "observation.images.wrist"]
+    for cam in cam_keys:
         stats[cam] = {
             "min": [[[0.0]], [[0.0]], [[0.0]]],
             "max": [[[1.0]], [[1.0]], [[1.0]]],
@@ -877,7 +883,7 @@ async def combine_datasets(request: Request):
                 new_meta["dataset_from_index"] = ep_global_start
                 new_meta["dataset_to_index"] = global_frame_idx
 
-                for cam in ["observation.images.top", "observation.images.wrist"]:
+                for cam in _get_camera_keys(base_info):
                     cam_key = f"videos/{cam}"
                     if ep_meta:
                         orig_chunk = ep_meta.get(f"{cam_key}/chunk_index", 0)
@@ -906,7 +912,7 @@ async def combine_datasets(request: Request):
         (new_dir / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
         (new_dir / "data" / "chunk-000").mkdir(parents=True)
 
-        for cam in ["observation.images.top", "observation.images.wrist"]:
+        for cam in _get_camera_keys(base_info):
             vid_dir = new_dir / "videos" / cam / "chunk-000"
             vid_dir.mkdir(parents=True)
             src_vids = []
@@ -1077,7 +1083,7 @@ async def random_subset_dataset(name: str, request: Request):
             new_meta["dataset_from_index"] = ep_global_start
             new_meta["dataset_to_index"] = global_frame_idx
 
-            for cam in ["observation.images.top", "observation.images.wrist"]:
+            for cam in _get_camera_keys(src_info):
                 cam_key = f"videos/{cam}"
                 if ep_meta:
                     orig_chunk = ep_meta.get(f"{cam_key}/chunk_index", 0)
@@ -1106,7 +1112,7 @@ async def random_subset_dataset(name: str, request: Request):
         (new_dir / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
         (new_dir / "data" / "chunk-000").mkdir(parents=True)
 
-        for cam in ["observation.images.top", "observation.images.wrist"]:
+        for cam in _get_camera_keys(base_info):
             vid_dir = new_dir / "videos" / cam / "chunk-000"
             vid_dir.mkdir(parents=True)
             src_vids = []
