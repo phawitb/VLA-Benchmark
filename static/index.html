@@ -67,11 +67,11 @@
   /* Form */
   .form-group { margin-bottom: 14px; }
   .form-label { display: block; font-size: 0.78rem; color: #777; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
-  select, textarea, input[type=text], input[type=number] {
+  select, textarea, input[type=text], input[type=number], input[type=password] {
     width: 100%; padding: 9px 12px; background: #fff; border: 1px solid #d0d0d0;
     border-radius: 8px; color: #222; font-size: 0.9rem; outline: none; transition: border-color 0.2s;
   }
-  select:focus, textarea:focus, input[type=text]:focus, input[type=number]:focus { border-color: #1a73e8; box-shadow: 0 0 0 3px rgba(26,115,232,0.1); }
+  select:focus, textarea:focus, input[type=text]:focus, input[type=number]:focus, input[type=password]:focus { border-color: #1a73e8; box-shadow: 0 0 0 3px rgba(26,115,232,0.1); }
   textarea { resize: vertical; min-height: 80px; font-family: inherit; font-size: 0.85rem; }
 
   .image-upload {
@@ -230,6 +230,14 @@
   }
   .modal-close { position: absolute; top: 10px; right: 14px; background: none; border: none; font-size: 1.3rem; cursor: pointer; color: #999; }
   .modal-close:hover { color: #222; }
+  .import-drop-zone { border: 2px dashed #c0c0c0; border-radius: 12px; padding: 28px 20px; text-align: center; cursor: default; transition: all 0.2s; background: #fafafa; }
+  .import-drop-zone:hover { border-color: #90caf9; background: #f5f9ff; }
+  .import-drop-zone.drag-over { border-color: #00897b; background: #e0f2f1; border-style: solid; }
+  .import-drop-zone .drop-icon { font-size: 2.2rem; margin-bottom: 6px; opacity: 0.7; }
+  .import-drop-zone .drop-text { font-size: 0.95rem; font-weight: 700; color: #555; }
+  .import-drop-zone .drop-hint { font-size: 0.78rem; color: #aaa; margin-top: 4px; }
+  .import-drop-zone.drag-over .drop-text { color: #00897b; }
+  .import-drop-zone.drag-over .drop-hint { color: #00897b; }
   .train-cmd {
     position: relative; background: #1e1e1e; color: #d4d4d4;
     font-family: 'SF Mono','Menlo','Consolas',monospace; font-size: 0.75rem; line-height: 1.7;
@@ -454,18 +462,14 @@
 
       <div class="config-card" style="margin-top:16px">
         <h3>Hugging Face</h3>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <span id="dcHfLoginStatus" style="font-size:0.85rem;color:#888">Checking...</span>
-          <button class="btn btn-sm" onclick="dcCheckHfLogin()" style="font-size:0.72rem;padding:2px 10px">Check</button>
-          <button class="btn btn-sm" id="dcHfLoginBtn" onclick="dcShowHfLogin()" style="background:#ff9800;font-size:0.72rem;padding:2px 10px;display:none">Login</button>
-          <button class="btn btn-sm btn-danger" id="dcHfLogoutBtn" onclick="dcHfLogout()" style="font-size:0.72rem;padding:2px 10px;display:none">Logout</button>
+        <div class="form-group">
+          <label class="form-label">HF Token <span style="font-weight:400;color:#aaa">from <a href="https://huggingface.co/settings/tokens" target="_blank" style="color:#1a73e8">hf.co/settings/tokens</a></span></label>
+          <input type="password" id="dcHfTokenInput" placeholder="hf_...">
         </div>
-        <div id="dcHfLoginPanel" style="display:none;margin-top:8px">
-          <p style="font-size:0.82rem;color:#555;margin-bottom:8px">Paste your Hugging Face token from <a href="https://huggingface.co/settings/tokens" target="_blank" style="color:#1a73e8">hf.co/settings/tokens</a></p>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input type="password" id="dcHfTokenInput" placeholder="hf_..." style="flex:1;font-family:'SF Mono','Menlo',monospace;font-size:0.82rem;padding:6px 10px;border:1px solid #d0d0d0;border-radius:6px">
-            <button class="btn btn-sm" id="dcHfLoginConfirmBtn" onclick="dcHfLogin()" style="background:#34a853;font-size:0.78rem;padding:4px 14px">Login</button>
-          </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+          <button class="btn btn-sm" onclick="dcHfLogin()" style="background:#34a853;font-size:0.78rem;padding:4px 14px">Login</button>
+          <button class="btn btn-sm btn-danger" id="dcHfLogoutBtn" onclick="dcHfLogout()" style="font-size:0.72rem;padding:2px 10px;display:none">Logout</button>
+          <span id="dcHfLoginStatus" style="font-size:0.85rem;color:#888">Checking...</span>
         </div>
         <div id="dcHfLog" style="display:none;margin-top:10px;font-family:'SF Mono','Menlo',monospace;font-size:0.78rem;background:#1e1e1e;color:#d4d4d4;border-radius:8px;padding:12px;max-height:200px;overflow-y:auto;white-space:pre-wrap;line-height:1.6"></div>
       </div>
@@ -497,6 +501,10 @@
             <label class="form-label">Conda Env</label>
             <input type="text" id="dcSshCondaEnv" placeholder="lerobot">
           </div>
+          <div class="form-group">
+            <label class="form-label">W&B API Key <span style="font-weight:400;color:#aaa">(optional)</span></label>
+            <input type="password" id="dcSshWandbKey" placeholder="paste your wandb api key">
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Working Directory</label>
@@ -524,8 +532,7 @@ conda activate lerobot
 pip install lerobot</pre>
             <div>5. <strong>Working Directory</strong>:</div>
             <pre style="margin:4px 0 4px 16px;padding:6px 10px;background:#1e1e1e;color:#d4d4d4;border-radius:4px;font-size:0.72rem;overflow-x:auto">mkdir -p ~/vla_benchmark_ws/logs</pre>
-            <div>6. <strong>HuggingFace login</strong> (for dataset download):</div>
-            <pre style="margin:4px 0 4px 16px;padding:6px 10px;background:#1e1e1e;color:#d4d4d4;border-radius:4px;font-size:0.72rem;overflow-x:auto">huggingface-cli login</pre>
+            <div>6. <strong>HuggingFace</strong> — token is auto-set from Setup > Hugging Face (no manual login needed)</div>
             <div style="margin-top:6px;color:#888">Or click <strong>Fix Environment</strong> to auto-install tmux, conda env, and lerobot.</div>
           </div>
         </details>
@@ -592,6 +599,18 @@ pip install lerobot</pre>
           <button class="btn" id="calStartBtn" onclick="calToggleRobot()" style="background:#34a853">Connect</button>
           <span class="cal-status off" id="calStatus">Disconnected</span>
           <span class="status" id="calError" style="display:none"></span>
+        </div>
+      </div>
+
+      <div class="config-card" id="ctrlJointsCard" style="margin-top:16px;display:none">
+        <h3>Joint Control</h3>
+        <p style="font-size:0.82rem;color:#666;margin-bottom:14px">
+          Drag sliders to move individual joints. Values update in real-time.
+        </p>
+        <div id="ctrlJointSliders"></div>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn btn-sm" onclick="ctrlReadPositions()" style="background:#1a73e8;font-size:0.78rem;padding:4px 14px">Read Positions</button>
+          <button class="btn btn-sm" onclick="ctrlHomeAll()" style="background:#ff9800;font-size:0.78rem;padding:4px 14px">Home (all 0°)</button>
         </div>
       </div>
     </div>
@@ -733,6 +752,7 @@ pip install lerobot</pre>
         <option value="">-- Select dataset --</option>
       </select>
       <button class="btn btn-sm" onclick="vizRefreshDatasets()">Refresh</button>
+      <button class="btn btn-sm" onclick="vizShowImport()" style="background:#546e7a;color:#fff">Import Local</button>
       <button class="btn btn-sm" onclick="vizShowDownloadHf()" style="background:#00897b;color:#fff">Download from HF</button>
       <button class="btn btn-sm" onclick="vizShowCombine()" style="background:#1a73e8">Combine</button>
       <button class="btn btn-sm" id="vizRenameDsBtn" onclick="vizRenameDataset()" style="display:none;background:#607d8b;color:#fff">Edit Name</button>
@@ -1945,6 +1965,7 @@ async function calToggleRobot(){
       calRunning=true;
       btn.textContent="Disconnect";btn.style.background="#d93025";
       st.textContent="Connected";st.className="cal-status on";
+      ctrlShowJoints();
     }catch(e){
       err.textContent=e.message;err.className="status error";err.style.display="inline";
       btn.textContent="Connect";btn.style.background="#34a853";
@@ -1955,6 +1976,7 @@ async function calToggleRobot(){
     calRunning=false;
     btn.textContent="Connect";btn.style.background="#34a853";
     st.textContent="Disconnected";st.className="cal-status off";
+    ctrlHideJoints();
   }
   btn.disabled=false;
 }
@@ -1967,8 +1989,110 @@ fetch("/api/robot/status").then(r=>r.json()).then(d=>{
     document.getElementById("calStartBtn").style.background="#d93025";
     document.getElementById("calStatus").textContent="Connected";
     document.getElementById("calStatus").className="cal-status on";
+    ctrlShowJoints();
   }
 }).catch(()=>{});
+
+
+// ══════════ Joint Control ══════════
+
+const CTRL_JOINTS = [
+  {name: "shoulder_pan",  label: "Shoulder Pan",  min: -180, max: 180},
+  {name: "shoulder_lift", label: "Shoulder Lift", min: -180, max: 180},
+  {name: "elbow_flex",    label: "Elbow Flex",    min: -180, max: 180},
+  {name: "wrist_flex",    label: "Wrist Flex",    min: -180, max: 180},
+  {name: "wrist_roll",    label: "Wrist Roll",    min: -180, max: 180},
+  {name: "gripper",       label: "Gripper",       min: -180, max: 180},
+];
+
+let ctrlPollTimer = null;
+
+function ctrlBuildSliders() {
+  const container = document.getElementById('ctrlJointSliders');
+  container.innerHTML = CTRL_JOINTS.map(j => `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <span style="font-size:0.82rem;color:#555;width:120px;text-align:right;flex-shrink:0">${j.label}</span>
+      <input type="range" id="ctrl_${j.name}" min="${j.min}" max="${j.max}" step="0.5" value="0"
+        style="flex:1;accent-color:#1a73e8;cursor:pointer"
+        oninput="ctrlSliderChanged('${j.name}', this.value)"
+        onmousedown="ctrlDragging=true" onmouseup="ctrlDragging=false"
+        ontouchstart="ctrlDragging=true" ontouchend="ctrlDragging=false">
+      <input type="number" id="ctrlVal_${j.name}" value="0" step="0.5" min="${j.min}" max="${j.max}"
+        style="width:70px;text-align:center;font-size:0.82rem"
+        onchange="ctrlNumChanged('${j.name}', this.value)">
+      <span style="font-size:0.72rem;color:#aaa">°</span>
+    </div>
+  `).join('');
+}
+
+let ctrlDragging = false;
+
+function ctrlSliderChanged(joint, val) {
+  document.getElementById('ctrlVal_' + joint).value = val;
+  ctrlSendPosition(joint, parseFloat(val));
+}
+
+function ctrlNumChanged(joint, val) {
+  const v = parseFloat(val);
+  if (isNaN(v)) return;
+  document.getElementById('ctrl_' + joint).value = v;
+  ctrlSendPosition(joint, v);
+}
+
+async function ctrlSendPosition(joint, value) {
+  try {
+    await fetch('/api/robot/move', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({positions: {[joint]: value}})
+    });
+  } catch(e) {}
+}
+
+async function ctrlReadPositions() {
+  try {
+    const r = await fetch('/api/robot/positions');
+    const d = await r.json();
+    if (d.ok) ctrlUpdateSliders(d.positions);
+  } catch(e) {}
+}
+
+function ctrlUpdateSliders(positions) {
+  for (const [joint, val] of Object.entries(positions)) {
+    const slider = document.getElementById('ctrl_' + joint);
+    const num = document.getElementById('ctrlVal_' + joint);
+    if (slider && !ctrlDragging) {
+      slider.value = val;
+      num.value = val;
+    }
+  }
+}
+
+async function ctrlHomeAll() {
+  const positions = {};
+  CTRL_JOINTS.forEach(j => positions[j.name] = 0);
+  try {
+    await fetch('/api/robot/move', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({positions})
+    });
+    ctrlUpdateSliders(positions);
+  } catch(e) {}
+}
+
+function ctrlShowJoints() {
+  ctrlBuildSliders();
+  document.getElementById('ctrlJointsCard').style.display = '';
+  ctrlReadPositions();
+  if (ctrlPollTimer) clearInterval(ctrlPollTimer);
+  ctrlPollTimer = setInterval(ctrlReadPositions, 500);
+}
+
+function ctrlHideJoints() {
+  document.getElementById('ctrlJointsCard').style.display = 'none';
+  if (ctrlPollTimer) { clearInterval(ctrlPollTimer); ctrlPollTimer = null; }
+}
 
 
 // ══════════ Data Collection ══════════
@@ -2018,6 +2142,7 @@ function dcPopulate() {
   document.getElementById('dcSshPort').value = gpu.port || 22;
   document.getElementById('dcSshPassword').value = gpu.password || '';
   document.getElementById('dcSshCondaEnv').value = gpu.conda_env || 'lerobot';
+  document.getElementById('dcSshWandbKey').value = gpu.wandb_key || '';
   document.getElementById('dcSshWorkDir').value = gpu.work_dir || '';
   dcCheckHfLogin();
 }
@@ -2091,12 +2216,9 @@ async function dcFixEnv() {
 
 async function dcCheckHfLogin() {
   const st = document.getElementById('dcHfLoginStatus');
-  const loginBtn = document.getElementById('dcHfLoginBtn');
   const logoutBtn = document.getElementById('dcHfLogoutBtn');
-  const panel = document.getElementById('dcHfLoginPanel');
   st.textContent = 'Checking...';
   st.style.color = '#888';
-  loginBtn.style.display = 'none';
   logoutBtn.style.display = 'none';
   try {
     const r = await fetch('/api/hf-whoami');
@@ -2105,7 +2227,10 @@ async function dcCheckHfLogin() {
       st.textContent = 'Logged in as ' + d.username;
       st.style.color = '#1e8e3e';
       logoutBtn.style.display = '';
-      panel.style.display = 'none';
+      // Show saved token (masked)
+      if (d.hf_token_masked) {
+        document.getElementById('dcHfTokenInput').placeholder = d.hf_token_masked;
+      }
       // Auto-save username as hf_repo_name if not set
       if (cfg && !cfg.hf_repo_name) {
         fetch('/api/config/save', {
@@ -2118,19 +2243,11 @@ async function dcCheckHfLogin() {
     } else {
       st.textContent = 'Not logged in';
       st.style.color = '#d93025';
-      loginBtn.style.display = '';
     }
   } catch(e) {
     st.textContent = 'Not logged in';
     st.style.color = '#d93025';
-    loginBtn.style.display = '';
   }
-}
-
-function dcShowHfLogin() {
-  const panel = document.getElementById('dcHfLoginPanel');
-  panel.style.display = panel.style.display === 'none' ? '' : 'none';
-  document.getElementById('dcHfTokenInput').focus();
 }
 
 async function dcHfLogin() {
@@ -2141,8 +2258,6 @@ async function dcHfLogin() {
     document.getElementById('dcHfTokenInput').focus();
     return;
   }
-  const confirmBtn = document.getElementById('dcHfLoginConfirmBtn');
-  confirmBtn.disabled = true;
   st.textContent = 'Logging in...';
   st.style.color = '#888';
   log.style.display = '';
@@ -2157,10 +2272,9 @@ async function dcHfLogin() {
     if (d.ok) {
       log.textContent += 'Token validated!\n';
       log.textContent += 'Logged in as: ' + d.username + '\n';
-      log.textContent += 'Token saved to local HF cache.\n';
-      log.textContent += 'hf_repo_name set to: ' + d.username + '\n';
+      log.textContent += 'Token saved to config & local HF cache.\n';
+      log.textContent += 'Same token will be used on GPU server.\n';
       log.textContent += '\nDone!';
-      document.getElementById('dcHfLoginPanel').style.display = 'none';
       document.getElementById('dcHfTokenInput').value = '';
       dcCheckHfLogin();
     } else {
@@ -2173,7 +2287,6 @@ async function dcHfLogin() {
     st.textContent = 'Error';
     st.style.color = '#d93025';
   }
-  confirmBtn.disabled = false;
 }
 
 async function dcHfLogout() {
@@ -2243,6 +2356,7 @@ async function dcSaveConfig() {
           port: parseInt(document.getElementById('dcSshPort').value) || 22,
           password: document.getElementById('dcSshPassword').value,
           conda_env: document.getElementById('dcSshCondaEnv').value.trim() || 'lerobot',
+          wandb_key: document.getElementById('dcSshWandbKey').value,
           work_dir: document.getElementById('dcSshWorkDir').value.trim(),
         },
         data_collection: {
@@ -2510,6 +2624,286 @@ let vizEpEnd = 0;    // video end timestamp
 let vizFrameCount = 0;
 let vizFps = 30;
 let vizCurrentCameras = [];
+
+// ══════════ Import Dataset ══════════
+
+let importBrowsePath = '~';
+
+function vizShowImport() {
+  const body = document.getElementById('modalBody');
+  body.innerHTML = `
+    <h3 style="margin-top:0;margin-bottom:12px">Import Dataset</h3>
+    <div style="margin-bottom:10px">
+      <label class="form-label">Dataset Path</label>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="importPathInput" placeholder="/path/to/dataset" style="flex:1;font-family:'SF Mono','Menlo',monospace;font-size:0.82rem">
+        <button class="btn btn-sm" onclick="importBrowse(document.getElementById('importPathInput').value || '~')" style="background:#546e7a">Browse</button>
+      </div>
+    </div>
+    <div id="importDropZone" class="import-drop-zone"
+         ondragover="event.preventDefault();event.stopPropagation();this.classList.add('drag-over')"
+         ondragleave="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over')"
+         ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');handleDropZone(event)">
+      <div class="drop-icon">&#128194;</div>
+      <div class="drop-text">Drop dataset folder here</div>
+      <div class="drop-hint">Drag &amp; drop a dataset folder</div>
+    </div>
+    <div id="importBrowser" style="display:none;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <button class="btn btn-sm" id="importUpBtn" onclick="importGoUp()" style="font-size:0.72rem;padding:2px 8px">&uarr; Up</button>
+        <span id="importCurPath" style="font-size:0.75rem;color:#888;font-family:'SF Mono','Menlo',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      </div>
+      <div id="importFileList" style="max-height:280px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:8px;background:#fafafa"></div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:14px">
+      <button class="btn" id="importBtn" onclick="vizDoImport()" style="background:#00897b;opacity:0.4" disabled>Import</button>
+      <button class="btn btn-sm" onclick="closeModal()" style="background:#eee;color:#444">Cancel</button>
+      <span id="importStatus" style="font-size:0.85rem;color:#888"></span>
+    </div>
+    <div id="importProgress" style="display:none;margin-top:12px">
+      <div style="height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden">
+        <div id="importBar" style="height:100%;width:0%;background:#00897b;transition:width 0.3s"></div>
+      </div>
+      <div id="importDetail" style="font-size:0.78rem;color:#888;margin-top:4px"></div>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('visible');
+  document.getElementById('importPathInput').focus();
+  document.getElementById('importPathInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') importBrowse(e.target.value || '~');
+  });
+}
+
+async function importBrowse(path) {
+  const browser = document.getElementById('importBrowser');
+  const fileList = document.getElementById('importFileList');
+  const curPath = document.getElementById('importCurPath');
+  browser.style.display = '';
+  fileList.innerHTML = '<div style="padding:14px;color:#888;font-size:0.85rem">Loading...</div>';
+  try {
+    const r = await fetch('/api/browse?path=' + encodeURIComponent(path));
+    const d = await r.json();
+    if (!d.ok) { fileList.innerHTML = `<div style="padding:14px;color:#d93025;font-size:0.85rem">${d.error}</div>`; return; }
+    importBrowsePath = d.current;
+    curPath.textContent = d.current;
+    document.getElementById('importPathInput').value = d.current;
+    document.getElementById('importUpBtn').style.display = d.parent ? '' : 'none';
+    const importBtn = document.getElementById('importBtn');
+    if (d.is_dataset) {
+      importBtn.disabled = false; importBtn.style.opacity = '1';
+    } else {
+      importBtn.disabled = true; importBtn.style.opacity = '0.4';
+    }
+    if (!d.entries.length) {
+      fileList.innerHTML = '<div style="padding:14px;color:#999;font-size:0.85rem">No subdirectories</div>';
+      return;
+    }
+    fileList.innerHTML = '';
+    d.entries.forEach(e => {
+      const div = document.createElement('div');
+      div.style.cssText = 'padding:8px 14px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.85rem';
+      if (e.is_dataset) div.style.background = '#e8f5e9';
+      else if (e.has_datasets) div.style.background = '#fff8e1';
+      let badge = '';
+      if (e.is_dataset) badge = '<span style="font-size:0.68rem;background:#2e7d32;color:#fff;padding:1px 6px;border-radius:4px;font-weight:600">Dataset</span>';
+      else if (e.has_datasets) badge = '<span style="font-size:0.68rem;background:#f9a825;color:#fff;padding:1px 6px;border-radius:4px;font-weight:600">Contains datasets</span>';
+      div.innerHTML = `<span style="color:#1a73e8">&#128193;</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}</span>
+        ${badge}`;
+      div.addEventListener('click', () => {
+        if (e.is_dataset || e.has_datasets) {
+          document.getElementById('importPathInput').value = e.path;
+          fileList.querySelectorAll('div').forEach(d => d.style.outline = '');
+          div.style.outline = '2px solid #00897b';
+          const btn = document.getElementById('importBtn');
+          btn.disabled = false; btn.style.opacity = '1';
+        } else {
+          importBrowse(e.path);
+        }
+      });
+      div.addEventListener('dblclick', () => importBrowse(e.path));
+      fileList.appendChild(div);
+    });
+  } catch(e) {
+    fileList.innerHTML = `<div style="padding:14px;color:#d93025;font-size:0.85rem">${e.message}</div>`;
+  }
+}
+
+function importGoUp() {
+  const parts = importBrowsePath.split('/');
+  parts.pop();
+  importBrowse(parts.join('/') || '/');
+}
+
+function importStartPoll(btn, st) {
+  document.getElementById('importProgress').style.display = '';
+  const poll = setInterval(async () => {
+    try {
+      const r2 = await fetch('/api/import/status');
+      const s = await r2.json();
+      const bar = document.getElementById('importBar');
+      const detail = document.getElementById('importDetail');
+      if (bar) bar.style.width = s.progress + '%';
+      if (detail) detail.textContent = s.status || '';
+      if (st) st.textContent = s.status || '';
+      if (s.error) {
+        if (st) { st.textContent = s.error; st.style.color = '#d93025'; }
+        clearInterval(poll);
+        if (btn) btn.disabled = false;
+      } else if (!s.running && s.progress >= 100) {
+        if (st) st.style.color = '#34a853';
+        clearInterval(poll);
+        vizRefreshDatasets();
+        if (btn) btn.style.display = 'none';
+        const cancelBtn = btn?.parentElement?.querySelector('[onclick*="closeModal"]');
+        if (cancelBtn) { cancelBtn.textContent = 'Close'; }
+      }
+    } catch(e) {}
+  }, 500);
+}
+
+async function vizDoImport() {
+  const path = document.getElementById('importPathInput').value.trim();
+  const st = document.getElementById('importStatus');
+  if (!path) { st.textContent = 'Enter a path'; st.style.color = '#d93025'; return; }
+  const btn = document.getElementById('importBtn');
+  btn.disabled = true;
+  st.textContent = 'Starting import...'; st.style.color = '#00897b';
+  try {
+    const r = await fetch('/api/datasets/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, name: '' }),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      st.textContent = d.error; st.style.color = '#d93025';
+      btn.disabled = false;
+      return;
+    }
+    importStartPoll(btn, st);
+  } catch(e) {
+    st.textContent = e.message; st.style.color = '#d93025';
+    btn.disabled = false;
+  }
+}
+
+function handleDropZone(e) {
+  const items = e.dataTransfer.items;
+  if (!items || !items.length) return;
+  const entries = [];
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
+    if (entry && entry.isDirectory) entries.push(entry);
+  }
+  if (!entries.length) { alert('Please drop a folder, not files.'); return; }
+  _processDropEntries(entries);
+}
+
+async function _processDropEntries(entries) {
+  for (const dirEntry of entries) {
+    const folderName = dirEntry.name;
+    const allFiles = [];
+    await collectFiles(dirEntry, '', allFiles);
+    const hasInfo = allFiles.some(f => f.path === 'meta/info.json');
+    const subDatasets = new Set();
+    allFiles.forEach(f => {
+      const m = f.path.match(/^([^/]+)\/meta\/info\.json$/);
+      if (m) subDatasets.add(m[1]);
+    });
+    if (!hasInfo && !subDatasets.size) {
+      alert(`"${folderName}" is not a valid LeRobot dataset (no meta/info.json found).`);
+      return;
+    }
+    const formData = new FormData();
+    formData.append('folder_name', folderName);
+    for (const f of allFiles) {
+      formData.append('files', f.file, f.path);
+    }
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#fff;border:1px solid #d0d0d0;border-radius:10px;padding:16px 20px;box-shadow:0 4px 16px rgba(0,0,0,0.15);z-index:9999;min-width:300px';
+    toast.innerHTML = `
+      <div style="font-weight:700;font-size:0.9rem;margin-bottom:6px">Importing "${folderName}"...</div>
+      <div style="height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden">
+        <div id="dropBar" style="height:100%;width:0%;background:#00897b;transition:width 0.3s"></div>
+      </div>
+      <div id="dropStatus" style="font-size:0.78rem;color:#888;margin-top:4px">Uploading files...</div>`;
+    document.body.appendChild(toast);
+    try {
+      const r = await fetch('/api/datasets/upload', { method: 'POST', body: formData });
+      const d = await r.json();
+      const bar = document.getElementById('dropBar');
+      const status = document.getElementById('dropStatus');
+      if (d.ok) {
+        if (bar) bar.style.width = '100%';
+        if (status) { status.textContent = `Imported "${d.name}" successfully!`; status.style.color = '#34a853'; }
+        vizRefreshDatasets();
+      } else {
+        if (status) { status.textContent = d.error; status.style.color = '#d93025'; }
+      }
+    } catch(err) {
+      const status = document.getElementById('dropStatus');
+      if (status) { status.textContent = err.message; status.style.color = '#d93025'; }
+    }
+    setTimeout(() => toast.remove(), 4000);
+  }
+}
+
+function collectFiles(dirEntry, basePath, result) {
+  return new Promise(resolve => {
+    const reader = dirEntry.createReader();
+    const readBatch = () => {
+      reader.readEntries(async entries => {
+        if (!entries.length) { resolve(); return; }
+        for (const entry of entries) {
+          const relPath = basePath ? basePath + '/' + entry.name : entry.name;
+          if (entry.isFile) {
+            const file = await new Promise(res => entry.file(f => res(f)));
+            result.push({ path: relPath, file });
+          } else if (entry.isDirectory) {
+            await collectFiles(entry, relPath, result);
+          }
+        }
+        readBatch();
+      });
+    };
+    readBatch();
+  });
+}
+
+// Global drag & drop
+(function setupDragDrop() {
+  let dragOverlay = null, dragCounter = 0;
+  function showOverlay() {
+    if (dragOverlay) return;
+    dragOverlay = document.createElement('div');
+    dragOverlay.innerHTML = `
+      <div style="border:3px dashed #00897b;border-radius:20px;padding:60px 40px;text-align:center;background:rgba(255,255,255,0.95)">
+        <div style="font-size:2.5rem;margin-bottom:10px">&#128194;</div>
+        <div style="font-size:1.2rem;font-weight:700;color:#00897b;margin-bottom:6px">Drop dataset folder here</div>
+        <div style="font-size:0.85rem;color:#888">Folder will be copied into ./data</div>
+      </div>`;
+    dragOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,137,123,0.08);z-index:9999;display:flex;align-items:center;justify-content:center;pointer-events:none';
+    document.body.appendChild(dragOverlay);
+  }
+  function hideOverlay() { if (dragOverlay) { dragOverlay.remove(); dragOverlay = null; } }
+  document.addEventListener('dragenter', e => { e.preventDefault(); dragCounter++; if (dragCounter === 1) showOverlay(); });
+  document.addEventListener('dragleave', e => { e.preventDefault(); dragCounter--; if (dragCounter <= 0) { dragCounter = 0; hideOverlay(); } });
+  document.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  document.addEventListener('drop', async e => {
+    e.preventDefault(); dragCounter = 0; hideOverlay();
+    const items = e.dataTransfer.items;
+    if (!items || !items.length) return;
+    const entries = [];
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
+      if (entry && entry.isDirectory) entries.push(entry);
+    }
+    if (!entries.length) return;
+    _processDropEntries(entries);
+  });
+})();
+
 
 async function vizRefreshDatasets() {
   const sel = document.getElementById('vizDatasetSelect');
