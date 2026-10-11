@@ -228,6 +228,7 @@
     background: #fff; border-radius: 12px; max-width: 900px; width: 95%; max-height: 90vh;
     overflow-y: auto; padding: 24px; position: relative;
   }
+  .modal.modal-wide { max-width: 92vw; width: 92vw; }
   .modal-close { position: absolute; top: 10px; right: 14px; background: none; border: none; font-size: 1.3rem; cursor: pointer; color: #999; }
   .modal-close:hover { color: #222; }
   .import-drop-zone { border: 2px dashed #c0c0c0; border-radius: 12px; padding: 28px 20px; text-align: center; cursor: default; transition: all 0.2s; background: #fafafa; }
@@ -758,10 +759,10 @@ pip install lerobot</pre>
       <div id="vizInfoGrid" style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.88rem;margin-bottom:16px"></div>
 
       <!-- Main 3-column layout -->
-      <div style="display:flex;gap:16px;align-items:flex-start">
+      <div id="vizMainRow" style="display:flex;gap:16px;align-items:flex-start">
 
         <!-- Left: actions panel -->
-        <div id="vizActionsPanel" style="width:200px;flex-shrink:0">
+        <div id="vizActionsPanel" style="width:200px;flex-shrink:0;align-self:flex-start">
           <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden">
             <div style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #e0e0e0">
               <span style="font-size:0.82rem;font-weight:700;color:#1a73e8">Actions</span>
@@ -788,7 +789,7 @@ pip install lerobot</pre>
         </div>
 
         <!-- Center: player area -->
-        <div style="flex:1;min-width:0">
+        <div id="vizContentCol" style="flex:1;min-width:0">
           <!-- Playback controls -->
           <div class="config-card" style="margin-bottom:12px">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
@@ -819,18 +820,18 @@ pip install lerobot</pre>
 </div>
 
         <!-- Middle: episode list -->
-        <div style="width:220px;flex-shrink:0">
-          <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden">
-            <div style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #e0e0e0;display:flex;align-items:center;justify-content:space-between">
+        <div id="vizEpCol" style="width:220px;flex-shrink:0">
+          <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="padding:8px 10px;background:#f8f9fa;border-bottom:1px solid #e0e0e0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">
               <span style="font-size:0.82rem;font-weight:700;color:#1a73e8">Episodes</span>
-              <div style="display:flex;gap:4px">
-                <button class="btn btn-sm" id="vizSelectModeBtn" onclick="vizToggleSelectMode()" style="font-size:0.72rem;padding:2px 8px;background:#f0f0f0;color:#555;border:1px solid #d0d0d0">Select</button>
-                <button class="btn btn-sm" id="vizSelectAllBtn" onclick="vizSelectAll()" style="font-size:0.72rem;padding:2px 8px;display:none;background:#e8f0fe;color:#1a73e8">All</button>
-                <button class="btn btn-sm" id="vizEditTaskSelBtn" onclick="vizEditTaskSelected()" style="font-size:0.72rem;padding:2px 8px;display:none;background:#5c6bc0;color:#fff">Task</button>
-                <button class="btn btn-sm btn-danger" id="vizDeleteBtn" onclick="vizDeleteSelected()" style="font-size:0.72rem;padding:2px 8px;display:none">Delete</button>
+              <div style="display:flex;gap:3px;flex-wrap:wrap">
+                <button class="btn btn-sm" id="vizSelectModeBtn" onclick="vizToggleSelectMode()" style="font-size:0.7rem;padding:2px 6px;background:#f0f0f0;color:#555;border:1px solid #d0d0d0">Select</button>
+                <button class="btn btn-sm" id="vizSelectAllBtn" onclick="vizSelectAll()" style="font-size:0.7rem;padding:2px 6px;display:none;background:#e8f0fe;color:#1a73e8">All</button>
+                <button class="btn btn-sm" id="vizEditTaskSelBtn" onclick="vizEditTaskSelected()" style="font-size:0.7rem;padding:2px 6px;display:none;background:#5c6bc0;color:#fff">Task</button>
+                <button class="btn btn-sm btn-danger" id="vizDeleteBtn" onclick="vizDeleteSelected()" style="font-size:0.7rem;padding:2px 6px;display:none">Del</button>
               </div>
             </div>
-            <div id="vizEpisodeList" style="max-height:calc(100vh - 260px);overflow-y:auto"></div>
+            <div id="vizEpisodeList" style="flex:1;overflow-y:auto"></div>
           </div>
           <select id="vizEpisodeSelect" style="display:none"></select>
         </div>
@@ -1213,12 +1214,14 @@ Effective: ~370ms / 50 = 7.4ms per action (amortized)</pre>
         <div class="inner-page active" id="inner-train-new">
           <!-- Dataset selection -->
           <div class="config-card" style="margin-bottom:14px">
-            <h3>1. Select Dataset</h3>
+            <h3>1. Select Dataset <span id="trainHfAccount" style="font-size:0.78rem;font-weight:400;color:#888"></span></h3>
+            <div style="font-size:0.75rem;color:#999;margin-bottom:8px">Datasets from your HF account. If a dataset is still local, push it to HF first in the Datasets page.</div>
             <div id="trainDsLoading" style="padding:10px;color:#888">Loading datasets...</div>
             <div id="trainDsList" style="max-height:220px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:8px;display:none"></div>
-            <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+            <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <span style="font-size:0.82rem;color:#888">Selected:</span>
               <strong id="trainSelectedDs" style="font-size:0.9rem;color:#1a73e8">None</strong>
+              <span id="trainTagStatus" style="font-size:0.75rem;color:#888;display:none"></span>
             </div>
           </div>
 
@@ -1240,7 +1243,7 @@ Effective: ~370ms / 50 = 7.4ms per action (amortized)</pre>
               </div>
               <div class="form-group">
                 <label class="form-label">Steps</label>
-                <input type="number" id="trainSteps" class="form-input" value="100000">
+                <input type="number" id="trainSteps" class="form-input" value="50000">
               </div>
               <div class="form-group">
                 <label class="form-label">Batch Size</label>
@@ -1416,6 +1419,7 @@ Effective: ~370ms / 50 = 7.4ms per action (amortized)</pre>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <div style="width:8px;height:8px;border-radius:50%;background:#e8710a;animation:pulse 1.5s infinite;flex-shrink:0"></div>
             <h3 style="margin:0;font-size:0.9rem" id="trainLiveTitle">Running</h3>
+            <a id="trainLiveWbLink2" href="#" target="_blank" style="display:none;color:#e8710a;font-size:0.72rem;font-weight:600;text-decoration:none">W&B ↗</a>
             <div style="flex:1"></div>
             <button class="btn btn-sm btn-danger" onclick="trainStopLiveJob()" style="font-size:0.68rem;padding:2px 8px">Stop</button>
           </div>
@@ -1510,10 +1514,6 @@ Effective: ~370ms / 50 = 7.4ms per action (amortized)</pre>
             <div class="form-group">
               <label class="form-label">FPS</label>
               <input type="number" id="evalFps" class="form-input" value="30" min="1" max="60" oninput="evalUpdateCmd();evalConfigChanged()">
-            </div>
-            <div class="form-group">
-              <label class="form-label">FourCC</label>
-              <input type="text" id="evalFourcc" class="form-input" value="" maxlength="4" style="text-transform:uppercase" placeholder="e.g. MJPG" oninput="evalUpdateCmd();evalConfigChanged()">
             </div>
             <div class="form-group">
               <label class="form-label">Width</label>
@@ -1863,6 +1863,7 @@ async function init() {
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('visible');
+  document.querySelector('.modal')?.classList.remove('modal-wide');
 }
 
 (function initPanelResize() {
@@ -2375,7 +2376,6 @@ function dcBuildCameraSettings() {
         <div class="form-group"><label class="form-label">FPS</label><input type="number" id="dc_${cam}_fps" value="${c.fps ?? 30}" min="1" max="60" style="width:70px"></div>
         <div class="form-group"><label class="form-label">Width</label><input type="number" id="dc_${cam}_width" value="${c.width ?? 320}" min="160" max="1920" step="16" style="width:70px"></div>
         <div class="form-group"><label class="form-label">Height</label><input type="number" id="dc_${cam}_height" value="${c.height ?? 240}" min="120" max="1080" step="16" style="width:70px"></div>
-        <div class="form-group"><label class="form-label">FourCC</label><input type="text" id="dc_${cam}_fourcc" value="${c.fourcc || 'MJPG'}" placeholder="e.g. MJPG" style="width:70px"></div>
       </div>
     </div>`;
   }).join('');
@@ -2500,7 +2500,6 @@ async function dcSaveConfig() {
                 fps: parseInt(el('fps')?.value) || 30,
                 width: parseInt(el('width')?.value) || 320,
                 height: parseInt(el('height')?.value) || 240,
-                ...(el('fourcc')?.value?.trim() && {fourcc: el('fourcc').value.trim()}),
               };
             });
             return cams;
@@ -3455,102 +3454,464 @@ async function vizDoRemoveIdle() {
   btn.disabled = false;
 }
 
-async function vizShowAugment() {
-  if (!vizCurrentDataset) return;
-  try {
-    const infoR = await fetch(`/api/datasets/${vizCurrentDataset}/info`);
-    const infoD = await infoR.json();
-    const totalEps = infoD.ok ? infoD.info.total_episodes : 0;
-    const body = document.getElementById('modalBody');
-    body.innerHTML = `
-      <h3 style="margin-top:0;margin-bottom:12px">Data Augmentation</h3>
-      <p style="font-size:0.85rem;color:#666;margin-bottom:14px">Create a new augmented dataset from <strong>${vizCurrentDataset}</strong> (${totalEps} episodes).</p>
-      <div class="two-col" style="margin-bottom:10px">
-        <div class="form-group">
-          <label class="form-label">New Dataset Name</label>
-          <input type="text" id="augName" value="${vizCurrentDataset}_aug" placeholder="augmented-dataset-name">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Target Episodes</label>
-          <input type="number" id="augTargetEps" value="${totalEps * 3}" min="1" style="width:100px">
-        </div>
-      </div>
-      <div class="form-group" style="margin-bottom:10px">
-        <label class="form-label">Intensity (1-5)</label>
-        <input type="range" id="augIntensity" min="1" max="5" value="3" style="width:200px">
-        <span id="augIntensityVal" style="font-size:0.85rem;font-weight:600;margin-left:8px">3</span>
-      </div>
-      <div style="margin-bottom:14px">
-        <label class="form-label">Techniques</label>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.85rem">
-          <label><input type="checkbox" id="augCamera" checked> Camera shift</label>
-          <label><input type="checkbox" id="augLight" checked> Light/quality</label>
-          <label><input type="checkbox" id="augRobot" checked> Robot noise</label>
-          <label><input type="checkbox" id="augLang"> Language variation</label>
-        </div>
-      </div>
-      <div style="display:flex;gap:10px;align-items:center">
-        <button class="btn" id="augStartBtn" onclick="vizDoAugment()" style="background:#e65100">Start Augmentation</button>
-        <button class="btn btn-sm" onclick="closeModal()" style="background:#eee;color:#444">Cancel</button>
-        <span id="augStatus" style="font-size:0.85rem;color:#888"></span>
-      </div>
-      <div id="augProgress" style="display:none;margin-top:12px">
-        <div style="height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden">
-          <div id="augBar" style="height:100%;width:0%;background:#e65100;transition:width 0.3s"></div>
-        </div>
-        <div id="augDetail" style="font-size:0.78rem;color:#888;margin-top:4px"></div>
-      </div>
-    `;
-    document.getElementById('modalOverlay').classList.add('visible');
-    document.getElementById('augIntensity').addEventListener('input', function() {
-      document.getElementById('augIntensityVal').textContent = this.value;
-    });
-  } catch(e) {}
+function augSld(id, label, min, max, step, def, unit='') {
+  return `<div style="display:flex;align-items:center;gap:6px;margin:3px 0">
+    <span style="font-size:0.75rem;min-width:90px;color:#555">${label}</span>
+    <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${def}" style="flex:1;max-width:160px" oninput="document.getElementById('${id}V').textContent=this.value">
+    <span id="${id}V" style="font-size:0.75rem;font-family:'SF Mono',monospace;min-width:40px">${def}</span>
+    <span style="font-size:0.7rem;color:#aaa">${unit}</span>
+  </div>`;
 }
 
-async function vizDoAugment() {
-  const name = document.getElementById('augName').value.trim();
-  const target = parseInt(document.getElementById('augTargetEps').value);
-  const intensity = parseInt(document.getElementById('augIntensity').value);
-  const st = document.getElementById('augStatus');
-  const btn = document.getElementById('augStartBtn');
-  if (!name) { st.textContent = 'Enter a name'; st.style.color = '#d93025'; return; }
-  if (!target || target < 1) { st.textContent = 'Invalid target episodes'; st.style.color = '#d93025'; return; }
-  btn.disabled = true;
-  st.textContent = 'Starting...'; st.style.color = '#888';
-  const techniques = {
-    camera_shift: {enabled: document.getElementById('augCamera').checked, perspective: true, affine: true, rotation: true},
-    light_quality: {enabled: document.getElementById('augLight').checked, brightness: true, contrast: true, saturation: true, color_jitter: true, noise: true, blur: true},
-    robot_noise: {enabled: document.getElementById('augRobot').checked, random_start: true, initial_noise: true, trajectory_jitter: true},
-    language: {enabled: document.getElementById('augLang').checked, synonym: true, paraphrase: true},
-  };
+async function vizShowAugment() {
+  if (!vizCurrentDataset) return;
+  const name = vizCurrentDataset;
   try {
-    const r = await fetch(`/api/datasets/${vizCurrentDataset}/augment`, {
+    const r = await fetch(`/api/datasets/${name}/info`);
+    const d = await r.json();
+    if (!d.ok) { alert('Error loading dataset'); return; }
+    const totalEps = d.info.total_episodes || 0;
+    const defaultTarget = Math.max(totalEps * 3, 10);
+
+    const body = document.getElementById('modalBody');
+    body.innerHTML = `
+      <h3 style="margin-top:0;margin-bottom:14px">Data Augmentation</h3>
+      <p style="font-size:0.85rem;color:#666;margin-bottom:14px">Create augmented copies of <strong>${name}</strong> (${totalEps} episodes) with random variations.</p>
+
+      <div style="display:flex;gap:24px;align-items:flex-start">
+        <!-- Left column: Settings -->
+        <div style="flex:1;min-width:0">
+
+          <div style="margin-bottom:10px">
+            <label class="form-label">Target Episodes</label>
+            <div style="display:inline-flex;border:1px solid #d0d0d0;border-radius:6px;overflow:hidden;margin-bottom:6px">
+              ${[2,3,4,5,6,7,8,9,10].map((x,i,a) => `<button class="aug-mult" data-mult="${x}" onclick="setAugMult(${x},${totalEps},'${name}')" style="padding:4px 10px;font-size:0.8rem;cursor:pointer;border:none;${i<a.length-1?'border-right:1px solid #e0e0e0;':''}background:${x===3?'#e8f0fe':'#fff'};color:${x===3?'#1a73e8':'#555'}">${x}x</button>`).join('')}
+            </div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="number" id="augTargetEps" class="form-input" value="${defaultTarget}" min="1" style="width:120px"
+                oninput="updateAugName('${name}');updateAugSummary(${totalEps})">
+              <span style="font-size:0.78rem;color:#888">episodes</span>
+              <span style="font-size:0.78rem;color:#aaa;margin-left:auto" id="augMultLabel">(${Math.round(defaultTarget/totalEps)}x of ${totalEps})</span>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-bottom:10px;align-items:end">
+            <div style="flex:1">
+              <label class="form-label">Mode</label>
+              <div style="display:flex;gap:4px">
+                <button class="btn-xs aug-mode-btn" id="augModeRandom" onclick="setAugMode('random')" style="background:#e8f0fe;color:#1a73e8;border:1px solid #90caf9;padding:4px 12px;cursor:pointer;border-radius:4px;font-size:0.8rem">Random</button>
+                <button class="btn-xs aug-mode-btn" id="augModeFix" onclick="setAugMode('fix')" style="background:#fff;color:#555;border:1px solid #d0d0d0;padding:4px 12px;cursor:pointer;border-radius:4px;font-size:0.8rem">Fix</button>
+              </div>
+              <div style="font-size:0.72rem;color:#aaa;margin-top:2px" id="augModeDesc">Random source episode per augmented copy</div>
+            </div>
+            <div style="flex:1">
+              <label class="form-label">Intensity (1-5)</label>
+              <input type="range" id="augIntensity" min="1" max="5" value="3" style="width:100%">
+              <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:#999"><span>Subtle</span><span>Strong</span></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:10px">
+            <label class="form-label">New Dataset Name</label>
+            <input type="text" id="augNewName" class="form-input" value="${name}_aug${defaultTarget}">
+          </div>
+
+          <!-- Parameter summary -->
+          <div id="augSummary" style="background:#f0f0f0;border-radius:6px;padding:8px 12px;margin-bottom:14px;font-size:0.75rem;color:#666;font-family:'SF Mono','Menlo',monospace;line-height:1.6"></div>
+
+          <div style="margin-bottom:14px">
+            <label class="form-label" style="margin-bottom:8px">Techniques</label>
+
+            <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;margin-bottom:8px">
+              <label style="font-weight:600;font-size:0.85rem"><input type="checkbox" id="augCamEnabled" checked> Camera Shift</label>
+              <div style="font-size:0.75rem;color:#999;margin:2px 0 4px 18px">Simulate camera position changes by applying geometric transforms</div>
+              <div style="padding-left:18px;margin-top:4px;font-size:0.82rem;color:#666">
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augCamPersp" checked> Perspective</label><span style="font-size:0.72rem;color:#aaa">— warp as if camera angle shifted</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augCamAffine" checked> Affine</label><span style="font-size:0.72rem;color:#aaa">— random scale/rotate/translate</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px"><label><input type="checkbox" id="augCamRot" checked> Rotation</label><span style="font-size:0.72rem;color:#aaa">— rotate by small random angle</span></div>
+              </div>
+              <div id="augCamParams"></div>
+            </div>
+
+            <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;margin-bottom:8px">
+              <label style="font-weight:600;font-size:0.85rem"><input type="checkbox" id="augLightEnabled" checked> Light & Quality</label>
+              <div style="font-size:0.75rem;color:#999;margin:2px 0 4px 18px">Simulate different lighting and camera quality</div>
+              <div style="padding-left:18px;margin-top:4px;font-size:0.82rem;color:#666">
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augLightBright" checked> Brightness</label><span style="font-size:0.72rem;color:#aaa">— random brightness shift</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augLightContrast" checked> Contrast</label><span style="font-size:0.72rem;color:#aaa">— adjust exposure level</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augLightSat" checked> Saturation</label><span style="font-size:0.72rem;color:#aaa">— adjust color intensity</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augLightJitter" checked> Color Jitter</label><span style="font-size:0.72rem;color:#aaa">— shift RGB channels</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augLightShadow"> Shadow</label><span style="font-size:0.72rem;color:#aaa">— add random dark regions</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augLightNoise"> Noise</label><span style="font-size:0.72rem;color:#aaa">— Gaussian noise (low-quality cam)</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px"><label><input type="checkbox" id="augLightBlur"> Blur</label><span style="font-size:0.72rem;color:#aaa">— Gaussian blur (out-of-focus)</span></div>
+              </div>
+              <div id="augLightParams"></div>
+            </div>
+
+            <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;margin-bottom:8px">
+              <label style="font-weight:600;font-size:0.85rem"><input type="checkbox" id="augRobotEnabled" checked> Robot Noise</label>
+              <div style="font-size:0.75rem;color:#999;margin:2px 0 4px 18px">Add random noise to action/state for policy robustness</div>
+              <div style="padding-left:18px;margin-top:4px;font-size:0.82rem;color:#666">
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augRobotStart" checked> Random Start Trim</label><span style="font-size:0.72rem;color:#aaa">— trim frames from start</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augRobotOffset" checked> Initial Noise</label><span style="font-size:0.72rem;color:#aaa">— offset initial joint positions</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px"><label><input type="checkbox" id="augRobotJitter" checked> Trajectory Jitter</label><span style="font-size:0.72rem;color:#aaa">— noise on action values</span></div>
+              </div>
+              <div id="augRobotParams"></div>
+            </div>
+
+            <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px">
+              <label style="font-weight:600;font-size:0.85rem"><input type="checkbox" id="augLangEnabled"> Language Variation</label>
+              <div style="font-size:0.75rem;color:#999;margin:2px 0 4px 18px">Create task text variations for language-conditioned policies</div>
+              <div style="padding-left:18px;margin-top:4px;font-size:0.82rem;color:#666">
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:2px"><label><input type="checkbox" id="augLangSyn" checked> Synonym/Paraphrase</label><span style="font-size:0.72rem;color:#aaa">— rephrase task description</span></div>
+                <div style="display:flex;align-items:baseline;gap:4px"><label><input type="checkbox" id="augLangTypo"> Typo</label><span style="font-size:0.72rem;color:#aaa">— small typos for robustness</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn" id="augBtn" onclick="vizDoAugment('${name}')" style="background:#7b1fa2">Start Augmentation</button>
+            <button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button>
+          </div>
+          <div id="augProgress" style="display:none;margin-top:12px">
+            <div style="background:#e0e0e0;border-radius:4px;height:8px;overflow:hidden;margin-bottom:6px">
+              <div id="augBar" style="height:100%;background:#7b1fa2;width:0%;transition:width 0.3s"></div>
+            </div>
+            <span id="augStatus" style="font-size:0.85rem;color:#888"></span>
+          </div>
+
+        </div>
+
+        <!-- Right column: Preview -->
+        <div style="flex:1;min-width:0;position:sticky;top:0">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label class="form-label" style="margin:0">Preview (5 random episodes)</label>
+            <span id="augPreviewStatus" style="font-size:0.72rem;color:#aaa"></span>
+          </div>
+          <div id="augPreviewGrid" style="display:grid;grid-template-columns:1fr;gap:10px;min-height:60px;background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;padding:10px">
+            <div style="text-align:center;color:#bbb;font-size:0.8rem;padding:16px 0">Loading preview...</div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.querySelector('.modal').classList.add('modal-wide');
+    document.getElementById('modalOverlay').classList.add('visible');
+
+    // Setup preview auto-update
+    window._augPreviewName = name;
+    window._augTotalEps = totalEps;
+    window._augMode = 'random';
+    _augPreviewUpdate();
+    updateAugSummary(totalEps);
+    renderAugParams();
+
+    // Listen for changes on all augment controls
+    const watchIds = ['augCamEnabled','augCamPersp','augCamAffine','augCamRot',
+      'augLightEnabled','augLightBright','augLightContrast','augLightSat','augLightJitter','augLightShadow','augLightNoise','augLightBlur',
+      'augRobotEnabled','augRobotStart','augRobotOffset','augRobotJitter',
+      'augLangEnabled','augLangSyn','augLangTypo','augIntensity'];
+    watchIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', _augPreviewDebounce);
+        el.addEventListener('input', () => { updateAugSummary(totalEps); renderAugParams(); });
+      }
+    });
+
+  } catch(e) { alert(e.message); }
+}
+
+function setAugMult(mult, totalEps, name) {
+  const target = mult * totalEps;
+  document.getElementById('augTargetEps').value = target;
+  document.querySelectorAll('.aug-mult').forEach(b => {
+    const m = parseInt(b.dataset.mult);
+    b.style.background = m === mult ? '#e8f0fe' : '#fff';
+    b.style.color = m === mult ? '#1a73e8' : '#555';
+  });
+  updateAugName(name);
+  updateAugSummary(totalEps);
+}
+
+function updateAugName(name) {
+  const v = document.getElementById('augTargetEps').value;
+  document.getElementById('augNewName').value = name + '_aug' + v;
+}
+
+function setAugMode(mode) {
+  window._augMode = mode;
+  document.getElementById('augModeRandom').style.background = mode === 'random' ? '#e8f0fe' : '#fff';
+  document.getElementById('augModeRandom').style.color = mode === 'random' ? '#1a73e8' : '#555';
+  document.getElementById('augModeRandom').style.borderColor = mode === 'random' ? '#90caf9' : '#d0d0d0';
+  document.getElementById('augModeFix').style.background = mode === 'fix' ? '#e8f0fe' : '#fff';
+  document.getElementById('augModeFix').style.color = mode === 'fix' ? '#1a73e8' : '#555';
+  document.getElementById('augModeFix').style.borderColor = mode === 'fix' ? '#90caf9' : '#d0d0d0';
+  document.getElementById('augModeDesc').textContent = mode === 'random'
+    ? 'Random source episode per augmented copy'
+    : 'Even copies per episode (each episode gets equal augmentations)';
+  updateAugSummary(window._augTotalEps || 0);
+  renderAugParams();
+}
+
+function updateAugSummary(totalEps) {
+  window._augTotalEps = totalEps;
+  const target = parseInt(document.getElementById('augTargetEps')?.value || 0);
+  const intensity = parseInt(document.getElementById('augIntensity')?.value || 3);
+  const mode = window._augMode || 'random';
+  const mult = totalEps > 0 ? (target / totalEps).toFixed(1) : '?';
+  document.getElementById('augMultLabel').textContent = `(${mult}x of ${totalEps})`;
+
+  const intensityLabels = {1:'Subtle',2:'Light',3:'Medium',4:'Strong',5:'Extreme'};
+  const techs = [];
+  if (document.getElementById('augCamEnabled')?.checked) techs.push('Camera Shift');
+  if (document.getElementById('augLightEnabled')?.checked) techs.push('Light & Quality');
+  if (document.getElementById('augRobotEnabled')?.checked) techs.push('Robot Noise');
+  if (document.getElementById('augLangEnabled')?.checked) techs.push('Language');
+
+  const copiesPerEp = mode === 'fix' && totalEps > 0 ? Math.floor(target / totalEps) : '~' + (totalEps > 0 ? Math.round(target / totalEps) : '?');
+
+  const el = document.getElementById('augSummary');
+  if (el) el.innerHTML = [
+    `<b>Source:</b> ${totalEps} eps &rarr; <b>Target:</b> ${target} eps (${mult}x)`,
+    `<b>Mode:</b> ${mode === 'random' ? 'Random pick' : 'Fix ('+copiesPerEp+' copies/ep)'}`,
+    `<b>Intensity:</b> ${intensity}/5 (${intensityLabels[intensity] || 'Medium'})`,
+    `<b>Techniques:</b> ${techs.length ? techs.join(', ') : 'None'}`,
+  ].join('<br>');
+}
+
+function renderAugParams() {
+  const mode = window._augMode || 'random';
+  const intensity = parseInt(document.getElementById('augIntensity')?.value || 3);
+  const SM = {1:0.25, 2:0.5, 3:1.0, 4:1.5, 5:2.0};
+  const s = SM[intensity] || 1.0;
+  const pstyle = 'margin-top:6px;padding:6px 10px;background:#eef6ff;border-radius:4px;font-size:0.72rem;color:#555;line-height:1.9';
+
+  function rng(label, lo, hi, unit) {
+    return `<div><span style="color:#888">${label}:</span> <b>${lo}</b> ~ <b>${hi}</b>${unit||''}</div>`;
+  }
+  function sld(id, label, min, max, step, val, unit) {
+    return `<div style="display:flex;align-items:center;gap:4px;margin-bottom:1px">
+      <span style="min-width:76px;color:#888">${label}:</span>
+      <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}" style="flex:1;height:12px" oninput="this.nextElementSibling.textContent=this.value;_augPreviewDebounce()">
+      <span style="min-width:38px;text-align:right;font-family:'SF Mono',monospace;font-size:0.72rem">${val}</span><span style="color:#aaa;font-size:0.68rem">${unit||''}</span>
+    </div>`;
+  }
+
+  // Camera
+  const camEl = document.getElementById('augCamParams');
+  if (camEl) {
+    const en = document.getElementById('augCamEnabled')?.checked;
+    const persp = en && document.getElementById('augCamPersp')?.checked;
+    const affine = en && document.getElementById('augCamAffine')?.checked;
+    const rot = en && document.getElementById('augCamRot')?.checked;
+    let h = '';
+    if (en && (persp||affine||rot)) {
+      if (mode==='random') {
+        if (persp) h += rng('Perspective', (-0.05*s).toFixed(3), (0.05*s).toFixed(3));
+        if (affine) { h += rng('Translate', (-0.04*s).toFixed(3), (0.04*s).toFixed(3)); h += rng('Scale', (1-0.05*s).toFixed(2), (1+0.05*s).toFixed(2)); h += rng('Shear', (-0.03*s).toFixed(3), (0.03*s).toFixed(3)); }
+        if (rot) h += rng('Rotation', (-4*s).toFixed(1), (4*s).toFixed(1), '\u00b0');
+      } else {
+        if (persp) h += sld('afPersp','Perspective', 0, 0.10, 0.005, (0.03*s).toFixed(3));
+        if (affine) { h += sld('afTx','Translate X', -0.08, 0.08, 0.005, (0.02*s).toFixed(3)); h += sld('afTy','Translate Y', -0.08, 0.08, 0.005, (0.02*s).toFixed(3)); h += sld('afScale','Scale', 0.90, 1.10, 0.01, '1.00'); h += sld('afShear','Shear', -0.06, 0.06, 0.005, '0.000'); }
+        if (rot) h += sld('afAngle','Rotation', -8, 8, 0.5, (2*s).toFixed(1), '\u00b0');
+      }
+    }
+    camEl.innerHTML = h ? `<div style="${pstyle}">${h}</div>` : '';
+  }
+
+  // Light
+  const lightEl = document.getElementById('augLightParams');
+  if (lightEl) {
+    const en = document.getElementById('augLightEnabled')?.checked;
+    let h = '';
+    if (en) {
+      const bright = document.getElementById('augLightBright')?.checked;
+      const contrast = document.getElementById('augLightContrast')?.checked;
+      const sat = document.getElementById('augLightSat')?.checked;
+      const jitter = document.getElementById('augLightJitter')?.checked;
+      const shadow = document.getElementById('augLightShadow')?.checked;
+      const noise = document.getElementById('augLightNoise')?.checked;
+      const blur = document.getElementById('augLightBlur')?.checked;
+      if (bright||contrast||sat||jitter||shadow||noise||blur) {
+        if (mode==='random') {
+          if (bright) h += rng('Brightness', (1-0.25*s).toFixed(2), (1+0.25*s).toFixed(2));
+          if (contrast) h += rng('Contrast', (1-0.25*s).toFixed(2), (1+0.25*s).toFixed(2));
+          if (sat) h += rng('Saturation', (1-0.35*s).toFixed(2), (1+0.35*s).toFixed(2));
+          if (jitter) h += rng('Hue shift', '-'+Math.round(8*s), '+'+Math.round(8*s));
+          if (shadow) h += rng('Shadow \u03b1', (0.15*s).toFixed(2), (0.4*s).toFixed(2));
+          if (noise) h += rng('Noise \u03c3', (4*s).toFixed(1), (12*s).toFixed(1));
+          if (blur) h += rng('Blur \u03c3', (0.4*s).toFixed(1), (1.2*s).toFixed(1));
+        } else {
+          if (bright) h += sld('afBright','Brightness', 0.50, 1.50, 0.01, (1+0.12*s).toFixed(2));
+          if (contrast) h += sld('afContrast','Contrast', 0.50, 1.50, 0.01, (1+0.12*s).toFixed(2));
+          if (sat) h += sld('afSat','Saturation', 0.30, 1.70, 0.01, (1+0.15*s).toFixed(2));
+          if (jitter) h += sld('afHue','Hue shift', -16, 16, 1, Math.round(4*s));
+          if (shadow) h += sld('afShadowA','Shadow \u03b1', 0.0, 0.80, 0.05, (0.25*s).toFixed(2));
+          if (noise) h += sld('afNoiseS','Noise \u03c3', 0, 24, 0.5, (8*s).toFixed(1));
+          if (blur) h += sld('afBlurS','Blur \u03c3', 0.0, 2.4, 0.1, (0.8*s).toFixed(1));
+        }
+      }
+    }
+    lightEl.innerHTML = h ? `<div style="${pstyle}">${h}</div>` : '';
+  }
+
+  // Robot
+  const robotEl = document.getElementById('augRobotParams');
+  if (robotEl) {
+    const en = document.getElementById('augRobotEnabled')?.checked;
+    let h = '';
+    if (en) {
+      const trim = document.getElementById('augRobotStart')?.checked;
+      const offset = document.getElementById('augRobotOffset')?.checked;
+      const jit = document.getElementById('augRobotJitter')?.checked;
+      if (trim||offset||jit) {
+        if (mode==='random') {
+          if (trim) h += rng('Start trim', '1', Math.max(1,Math.round(30*0.12*s)).toString(), ' frames');
+          if (offset) h += rng('Offset \u03c3', '0', (1.5*s).toFixed(1), '\u00b0');
+          if (jit) h += rng('Jitter \u03c3', (0.3*s).toFixed(1), (1.0*s).toFixed(1));
+        } else {
+          if (trim) h += sld('afTrim','Trim', 0, 30, 1, Math.min(Math.round(3*s), 20), ' frames');
+          if (offset) h += sld('afOffsetS','Offset \u03c3', 0.0, 3.0, 0.1, (1.0*s).toFixed(1), '\u00b0');
+          if (jit) h += sld('afJitterS','Jitter \u03c3', 0.0, 2.0, 0.1, (0.5*s).toFixed(1));
+        }
+      }
+    }
+    robotEl.innerHTML = h ? `<div style="${pstyle}">${h}</div>` : '';
+  }
+}
+
+function getFixedParams() {
+  if (window._augMode !== 'fix') return null;
+  const rv = id => { const el = document.getElementById(id); return el ? parseFloat(el.value) : null; };
+  return {
+    camera: { persp_mag: rv('afPersp'), tx: rv('afTx'), ty: rv('afTy'), shear: rv('afShear'), scale: rv('afScale'), angle: rv('afAngle') },
+    light: { brightness: rv('afBright'), contrast: rv('afContrast'), saturation: rv('afSat'), hue: rv('afHue'), sat_off: rv('afSatOff'), shadow_a: rv('afShadowA'), noise_s: rv('afNoiseS'), blur_s: rv('afBlurS') },
+    robot: { trim: rv('afTrim'), offset_sigma: rv('afOffsetS'), jitter_s: rv('afJitterS') },
+  };
+}
+
+let _augPreviewTimer = null;
+function _augPreviewDebounce() {
+  clearTimeout(_augPreviewTimer);
+  _augPreviewTimer = setTimeout(_augPreviewUpdate, 300);
+}
+
+async function _augPreviewUpdate() {
+  const name = window._augPreviewName;
+  if (!name) return;
+  const grid = document.getElementById('augPreviewGrid');
+  const st = document.getElementById('augPreviewStatus');
+  if (!grid) return;
+  if (st) st.textContent = 'Generating...';
+
+  const intensity = parseInt(document.getElementById('augIntensity')?.value || 3);
+  const techniques = {
+    camera: {
+      enabled: document.getElementById('augCamEnabled')?.checked,
+      perspective: document.getElementById('augCamPersp')?.checked,
+      affine: document.getElementById('augCamAffine')?.checked,
+      rotation: document.getElementById('augCamRot')?.checked,
+    },
+    light: {
+      enabled: document.getElementById('augLightEnabled')?.checked,
+      brightness: document.getElementById('augLightBright')?.checked,
+      contrast: document.getElementById('augLightContrast')?.checked,
+      saturation: document.getElementById('augLightSat')?.checked,
+      color_jitter: document.getElementById('augLightJitter')?.checked,
+      shadow: document.getElementById('augLightShadow')?.checked,
+      noise: document.getElementById('augLightNoise')?.checked,
+      blur: document.getElementById('augLightBlur')?.checked,
+    },
+  };
+
+  try {
+    const r = await fetch(`/api/datasets/${name}/augment-preview`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name, target_episodes: target, intensity, techniques}),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intensity, techniques, count: 5, mode: window._augMode || 'random', fixed_params: getFixedParams() }),
     });
     const d = await r.json();
-    if (!d.ok) { st.textContent = d.error; st.style.color = '#d93025'; btn.disabled = false; return; }
-    document.getElementById('augProgress').style.display = '';
+    if (!d.ok || !d.previews?.length) {
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#d93025;font-size:0.8rem;padding:16px 0">No preview available</div>';
+      if (st) st.textContent = '';
+      return;
+    }
+    grid.innerHTML = d.previews.map(p => `
+      <div style="display:flex;gap:6px;align-items:center">
+        <div style="font-size:0.68rem;color:#999;min-width:32px;text-align:right">Ep ${p.ep}</div>
+        <div style="flex:1;text-align:center">
+          <img src="data:image/jpeg;base64,${p.original}" style="width:100%;border-radius:4px;border:1px solid #e0e0e0">
+          <div style="font-size:0.6rem;color:#aaa">original</div>
+        </div>
+        <div style="font-size:0.8rem;color:#ccc">&rarr;</div>
+        <div style="flex:1;text-align:center">
+          <img src="data:image/jpeg;base64,${p.augmented}" style="width:100%;border-radius:4px;border:2px solid #7b1fa2">
+          <div style="font-size:0.6rem;color:#7b1fa2">augmented</div>
+        </div>
+      </div>
+    `).join('');
+    if (st) st.textContent = '';
+  } catch(e) {
+    if (st) st.textContent = 'Error';
+    console.error(e);
+  }
+}
+
+async function vizDoAugment(srcName) {
+  const name = srcName || vizCurrentDataset;
+  const targetEps = parseInt(document.getElementById('augTargetEps').value);
+  const newName = document.getElementById('augNewName').value.trim();
+  const intensity = parseInt(document.getElementById('augIntensity').value);
+  const st = document.getElementById('augStatus');
+  const btn = document.getElementById('augBtn');
+  if (!newName) { alert('Enter a dataset name'); return; }
+  if (!targetEps || targetEps < 1) { if (st) { st.textContent = 'Invalid target episodes'; st.style.color = '#d93025'; } return; }
+
+  const ck = id => document.getElementById(id)?.checked || false;
+  const techniques = {
+    camera_shift: {enabled: ck('augCamEnabled'), perspective: ck('augCamPersp'), affine: ck('augCamAffine'), rotation: ck('augCamRot')},
+    light_quality: {enabled: ck('augLightEnabled'), brightness: ck('augLightBright'), contrast: ck('augLightContrast'), saturation: ck('augLightSat'), color_jitter: ck('augLightJitter'), shadow: ck('augLightShadow'), noise: ck('augLightNoise'), blur: ck('augLightBlur')},
+    robot_noise: {enabled: ck('augRobotEnabled'), random_start: ck('augRobotStart'), initial_noise: ck('augRobotOffset'), trajectory_jitter: ck('augRobotJitter')},
+    language: {enabled: ck('augLangEnabled'), synonym: ck('augLangSyn'), paraphrase: ck('augLangSyn'), typo: ck('augLangTypo')},
+  };
+
+  btn.disabled = true;
+  document.getElementById('augProgress').style.display = '';
+
+  try {
+    const r = await fetch(`/api/datasets/${name}/augment`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: newName, target_episodes: targetEps, intensity, techniques, mode: window._augMode || 'random', fixed_params: getFixedParams()}),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      if (st) { st.textContent = d.error; st.style.color = '#d93025'; }
+      btn.disabled = false;
+      return;
+    }
     const poll = setInterval(async () => {
       try {
-        const r2 = await fetch('/api/augment/status');
-        const s = await r2.json();
-        document.getElementById('augBar').style.width = s.progress + '%';
-        document.getElementById('augDetail').textContent = s.status || '';
-        st.textContent = s.status || '';
-        if (s.error) {
-          st.textContent = s.error; st.style.color = '#d93025';
-          clearInterval(poll); btn.disabled = false;
-        } else if (!s.running && s.progress >= 100) {
-          st.style.color = '#34a853';
+        const sr = await fetch('/api/augment/status');
+        const sd = await sr.json();
+        document.getElementById('augBar').style.width = sd.progress + '%';
+        if (st) st.textContent = sd.status;
+        if (sd.error) {
+          if (st) { st.textContent = sd.error; st.style.color = '#d93025'; }
           clearInterval(poll);
+          btn.disabled = false;
+        } else if (!sd.running && sd.progress >= 100) {
+          clearInterval(poll);
+          closeModal();
+          alert(`Augmentation complete! Created "${newName}"`);
           vizRefreshDatasets();
         }
-      } catch(e) {}
+      } catch(e) { /* ignore */ }
     }, 1000);
-  } catch(e) { st.textContent = e.message; st.style.color = '#d93025'; btn.disabled = false; }
+  } catch(e) {
+    if (st) { st.textContent = e.message; st.style.color = '#d93025'; }
+    btn.disabled = false;
+  }
 }
 
 async function vizShowRandomSubset() {
@@ -4522,12 +4883,33 @@ async function _updateLiveJob(runningEntries) {
 async function _refreshLiveLog() {
   if (!_liveJobId) return;
   try {
-    const r = await fetch(`/api/training/jobs/${_liveJobId}/logs?tail=30`);
+    const [r, sr] = await Promise.all([
+      fetch(`/api/training/jobs/${_liveJobId}/logs?tail=30`),
+      fetch(`/api/training/jobs/${_liveJobId}/status`)
+    ]);
     const d = await r.json();
+    const sd = await sr.json();
     const logText = Array.isArray(d.lines) ? d.lines.join('\n') : (d.logs || d.log || '');
     const logEl = document.getElementById('trainLiveLog');
     logEl.textContent = logText || '(waiting for logs...)';
     logEl.scrollTop = logEl.scrollHeight;
+
+    // W&B link
+    const wbLink = document.getElementById('trainLiveWbLink2');
+    if (wbLink) {
+      const wbUrl = sd.wb_url;
+      if (wbUrl) {
+        wbLink.href = wbUrl;
+        wbLink.style.display = '';
+      } else if (sd.config?.wandb_enable) {
+        const wbEnt = sd.config.wandb_entity || 'phawitbinabik-turun-ammattikorkeakoulu';
+        const wbProj = sd.config.wandb_project || 'SO101-Experiments';
+        wbLink.href = `https://wandb.ai/${wbEnt}/${wbProj}`;
+        wbLink.style.display = '';
+      } else {
+        wbLink.style.display = 'none';
+      }
+    }
 
     // Parse progress
     let currentStep = 0, totalSteps = 0, lastLoss = '';
@@ -4619,6 +5001,13 @@ async function trainLoadDatasets() {
     if (!d.ok) { loading.textContent = d.error; return; }
     loading.style.display = 'none';
     listEl.style.display = '';
+    // Show HF account name
+    const hfAccEl = document.getElementById('trainHfAccount');
+    if (hfAccEl && d.datasets.length) {
+      const firstRepo = d.datasets[0].repo_id || d.datasets[0].id || '';
+      const account = firstRepo.split('/')[0] || cfg.hf_repo_name || '';
+      if (account) hfAccEl.textContent = '(' + account + ')';
+    }
     if (!d.datasets.length) {
       listEl.innerHTML = '<div style="padding:14px;text-align:center;color:#888">No datasets found.</div>';
       return;
@@ -4650,6 +5039,69 @@ function trainSelectDs(el) {
   const jn = document.getElementById('trainJobName');
   const policy = document.getElementById('trainPolicyType').value;
   jn.value = `${policy}_${el.dataset.name}`;
+  // Check and auto-tag if needed
+  trainCheckTag(el.dataset.repo);
+}
+
+async function trainCheckTag(repoId) {
+  const st = document.getElementById('trainTagStatus');
+  st.style.display = '';
+  st.textContent = 'Checking tag...';
+  st.style.color = '#888';
+  try {
+    const r = await fetch(`/api/hf-dataset-tags?repo_id=${encodeURIComponent(repoId)}`);
+    const d = await r.json();
+    if (d.ok && d.tagged) {
+      st.textContent = `Tagged: ${d.version}`;
+      st.style.color = '#34a853';
+    } else {
+      // Auto-tag
+      st.textContent = 'Auto-tagging...';
+      const tr = await fetch('/api/hf-dataset-tag', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({repo_id: repoId})
+      });
+      const td = await tr.json();
+      if (td.ok) {
+        st.textContent = `Tagged: ${td.version}`;
+        st.style.color = '#34a853';
+      } else {
+        st.textContent = 'Tag failed: ' + (td.error || '');
+        st.style.color = '#d93025';
+      }
+    }
+  } catch(e) {
+    st.textContent = 'Tag check failed';
+    st.style.color = '#d93025';
+  }
+}
+
+// kept for compatibility - now unused
+async function trainTagDataset() {
+  if (!trainSelectedRepoId) return;
+  const st = document.getElementById('trainTagStatus');
+  st.style.display = '';
+  st.textContent = 'Creating tag...';
+  st.style.color = '#888';
+  try {
+    const r = await fetch('/api/hf-dataset-tag', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({repo_id: trainSelectedRepoId})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      st.textContent = `Tagged: ${d.version}`;
+      st.style.color = '#34a853';
+    } else {
+      st.textContent = 'Error: ' + (d.error || 'unknown');
+      st.style.color = '#d93025';
+    }
+  } catch(e) {
+    st.textContent = 'Error: ' + e.message;
+    st.style.color = '#d93025';
+  }
 }
 
 function trainReadConfig() {
@@ -4662,7 +5114,7 @@ function trainReadConfig() {
     policy_type: policyType,
     dataset_repo_id: trainSelectedRepoId,
     use_amp: document.getElementById('trainAmp').checked,
-    steps: parseInt(document.getElementById('trainSteps').value) || 100000,
+    steps: parseInt(document.getElementById('trainSteps').value) || 50000,
     batch_size: parseInt(document.getElementById('trainBatchSize').value) || 32,
     optimizer_lr: parseFloat(document.getElementById('trainLr').value) || 0.00001,
     wandb_enable: document.getElementById('trainWandb').checked,
@@ -4791,6 +5243,27 @@ async function trainStart() {
   logEl.style.display = '';
 
   const body = trainReadConfig();
+
+  // Auto-tag dataset before training to prevent version error
+  try {
+    st.textContent = 'Checking dataset version tag...';
+    const tagCheck = await fetch(`/api/hf-dataset-tags?repo_id=${encodeURIComponent(trainSelectedRepoId)}`);
+    const tagData = await tagCheck.json();
+    if (tagData.ok && !tagData.tagged) {
+      st.textContent = 'Tagging dataset version...';
+      const tagR = await fetch('/api/hf-dataset-tag', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({repo_id: trainSelectedRepoId})
+      });
+      const tagD = await tagR.json();
+      if (!tagD.ok) {
+        st.textContent = 'Warning: could not tag dataset - ' + (tagD.error || '');
+        st.style.color = '#ff9800';
+      }
+    }
+  } catch(e) { /* continue anyway */ }
+
+  st.textContent = 'Starting training via SSH...';
 
   try {
     const r = await fetch('/api/training/train', {
@@ -4939,7 +5412,7 @@ async function trainLoadHistory() {
         let wbLink = null;
         if (config.wandb_enable) {
           const wbProj = config.wandb_project || 'SO101-Experiments';
-          wbLink = job.wb_url || `https://wandb.ai/${wbEntity}/${wbProj}/runs/${id}`;
+          wbLink = job.wb_url || `https://wandb.ai/${wbEntity}/${wbProj}`;
         }
         items.push({
           type: 'job', jobId: id, policyType, name: job.job_name || config.job_name || id,
@@ -5097,7 +5570,7 @@ async function historyLoadJobDetail(jobId) {
     if (config.wandb_enable) {
       const wbProj = config.wandb_project || 'SO101-Experiments';
       const wbEnt = config.wandb_entity || 'phawitbinabik-turun-ammattikorkeakoulu';
-      const wbUrl = statusD.wb_url || `https://wandb.ai/${wbEnt}/${wbProj}/runs/${jobId}`;
+      const wbUrl = statusD.wb_url || `https://wandb.ai/${wbEnt}/${wbProj}`;
       parts.push(`<a href="${wbUrl}" target="_blank" style="color:#e8710a;text-decoration:none;font-weight:600">W&B ↗</a>`);
     }
     if (statusD.started_at) parts.push(`Started: ${new Date(statusD.started_at).toLocaleString()}`);
@@ -6050,6 +6523,17 @@ function vizUpdateChartCursor(pct) {
 
 // ── Chart Drawing ──
 
+function vizSyncEpHeight() {
+  const content = document.getElementById('vizContentCol');
+  const epList = document.getElementById('vizEpisodeList');
+  if (!content || !epList) return;
+  // Subtract header height (~44px) from content column height
+  const listH = content.offsetHeight - 44;
+  epList.style.maxHeight = Math.max(200, listH) + 'px';
+  epList.style.overflowY = 'auto';
+}
+window.addEventListener('resize', vizSyncEpHeight);
+
 async function vizDrawChart(frames) {
   const ctx = document.getElementById('vizChart');
   if (vizChart) vizChart.destroy();
@@ -6098,6 +6582,8 @@ async function vizDrawChart(frames) {
       },
     },
   });
+  // Sync episode list height to match content column
+  requestAnimationFrame(vizSyncEpHeight);
 }
 
 // ── Evaluate Results Tab ──
@@ -6149,7 +6635,7 @@ async function evalLoadConfig() {
       if (c.fps != null) document.getElementById('evalFps').value = c.fps;
       if (c.width != null) document.getElementById('evalWidth').value = c.width;
       if (c.height != null) document.getElementById('evalHeight').value = c.height;
-      if (c.fourcc != null) document.getElementById('evalFourcc').value = c.fourcc;
+
       if (c.record_video != null) document.getElementById('evalRecordVideo').checked = c.record_video;
       if (c.cam_count != null) document.getElementById('evalCamCount').value = c.cam_count;
       if (c.chunk_size != null) document.getElementById('evalChunkSize').value = c.chunk_size;
@@ -6171,7 +6657,6 @@ function _evalGetCurrentConfig() {
     fps: parseInt(document.getElementById('evalFps').value) || 30,
     width: parseInt(document.getElementById('evalWidth').value) || 320,
     height: parseInt(document.getElementById('evalHeight').value) || 240,
-    fourcc: document.getElementById('evalFourcc').value.toUpperCase().trim(),
     cam_count: document.getElementById('evalCamCount').value || 'all',
     record_video: document.getElementById('evalRecordVideo').checked,
     chunk_size: parseInt(document.getElementById('evalChunkSize').value) || null,
@@ -6194,7 +6679,6 @@ function evalConfigChanged() {
       cameras: config.cam_count,
       width: config.width,
       height: config.height,
-      fourcc: config.fourcc || null,
       chunk_size: config.chunk_size,
       n_action_steps: config.n_action_steps,
     };
@@ -6387,13 +6871,11 @@ function evalUpdateCmd() {
   const fps = document.getElementById('evalFps').value || '30';
   const width = document.getElementById('evalWidth').value || '320';
   const height = document.getElementById('evalHeight').value || '240';
-  const fourcc = document.getElementById('evalFourcc').value.toUpperCase().trim();
   const rob = cfg.robot || {};
   const robotPort = rob.port || '';
   const robotId = rob.id || '';
   const robCams = rob.cameras || {};
   const camCountVal = document.getElementById('evalCamCount').value;
-  const fourccPart = fourcc ? `, fourcc: ${fourcc}` : '';
   let selectedCams;
   if (camCountVal === 'all') {
     selectedCams = Object.entries(robCams);
@@ -6404,7 +6886,7 @@ function evalUpdateCmd() {
     selectedCams = Object.entries(robCams);
   }
   const camParts = selectedCams.map(([name, c]) =>
-    `${name}: {type: opencv, index_or_path: ${c.index ?? 0}, width: ${width}, height: ${height}, fps: ${fps}${fourccPart}}`
+    `${name}: {type: opencv, index_or_path: ${c.index ?? 0}, width: ${width}, height: ${height}, fps: ${fps}}`
   ).join(', ');
   const camerasStr = `'{${camParts}}'`;
   let cmd = `lerobot-rollout \\\n`;
@@ -6659,7 +7141,6 @@ async function _evalNewSession() {
       cameras: document.getElementById('evalCamCount').value || 'all',
       width: parseInt(document.getElementById('evalWidth').value) || 320,
       height: parseInt(document.getElementById('evalHeight').value) || 240,
-      fourcc: document.getElementById('evalFourcc').value.toUpperCase().trim() || null,
       chunk_size: parseInt(document.getElementById('evalChunkSize').value) || null,
       n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || null,
     },
@@ -6716,7 +7197,6 @@ function _evalBuildBody() {
     fps: parseInt(document.getElementById('evalFps').value) || 30,
     width: parseInt(document.getElementById('evalWidth').value) || 320,
     height: parseInt(document.getElementById('evalHeight').value) || 240,
-    fourcc: document.getElementById('evalFourcc').value.toUpperCase().trim(),
     cam_count: document.getElementById('evalCamCount').value || 'all',
     chunk_size: parseInt(document.getElementById('evalChunkSize').value) || 0,
     n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || 0,
@@ -6895,7 +7375,6 @@ async function evalRecordResult(result) {
       fps: parseInt(document.getElementById('evalFps').value) || 30,
       width: parseInt(document.getElementById('evalWidth').value) || 320,
       height: parseInt(document.getElementById('evalHeight').value) || 240,
-      fourcc: document.getElementById('evalFourcc').value.toUpperCase().trim() || null,
       chunk_size: parseInt(document.getElementById('evalChunkSize').value) || null,
       n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || null,
     },
@@ -6979,7 +7458,6 @@ function evalRenderResults() {
           ['Cameras', c.cameras || '-'],
           ['FPS', c.fps || '-'],
           ['Size', (c.width && c.height) ? c.width + '×' + c.height : '-'],
-          ['FourCC', c.fourcc || '-'],
           ['Chunk', c.chunk_size || 'default'],
           ['N Steps', c.n_action_steps || 'default'],
         ].filter(([,v]) => v !== '-');
@@ -7325,7 +7803,6 @@ async function evalLoadSession(sessionId) {
     if (c.cameras != null) document.getElementById('evalCamCount').value = c.cameras;
     if (c.width != null) document.getElementById('evalWidth').value = c.width;
     if (c.height != null) document.getElementById('evalHeight').value = c.height;
-    document.getElementById('evalFourcc').value = c.fourcc || '';
     if (c.chunk_size != null) document.getElementById('evalChunkSize').value = c.chunk_size;
     else document.getElementById('evalChunkSize').value = '';
     if (c.n_action_steps != null) document.getElementById('evalNActionSteps').value = c.n_action_steps;

@@ -1440,6 +1440,18 @@ api.create_commit(
     operations=ops,
     commit_message="Upload dataset via VLA-Benchmark",
 )
+# Tag with codebase version (required by lerobot-train)
+import json
+info_path = [local for local, remote in files if remote == "meta/info.json"]
+if info_path:
+    with open(info_path[0]) as f:
+        info = json.load(f)
+    version = info.get("codebase_version", "v2.1")
+    try:
+        api.create_tag(repo_id, tag=version, repo_type="dataset")
+        print(f"TAG {version}", flush=True)
+    except Exception as e:
+        print(f"TAG_WARN: {e}", flush=True)
 print("DONE", flush=True)
 """
         lerobot_python = "/opt/miniconda3/envs/lerobot/bin/python"
@@ -1487,6 +1499,52 @@ print("DONE", flush=True)
         state["status"] = f"Error: {e}"
     finally:
         state["running"] = False
+
+
+@app.get("/api/hf-dataset-tags")
+async def hf_dataset_tags(repo_id: str):
+    """Check if a HF dataset has a codebase version tag."""
+    try:
+        from huggingface_hub import HfApi
+        api = HfApi(token=_read_env().get("HF_TOKEN", "") or None)
+        refs = api.list_repo_refs(repo_id, repo_type="dataset")
+        tags = [t.name for t in (refs.tags or [])]
+        # Look for version tags like v2.1, v2.0, etc.
+        version_tags = [t for t in tags if t.startswith("v")]
+        if version_tags:
+            return {"ok": True, "tagged": True, "version": version_tags[-1], "tags": tags}
+        return {"ok": True, "tagged": False, "tags": tags}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/hf-dataset-tag")
+async def hf_dataset_tag(request: Request):
+    """Create a codebase version tag on a HF dataset."""
+    body = await request.json()
+    repo_id = body.get("repo_id", "")
+    if not repo_id:
+        return {"ok": False, "error": "No repo_id"}
+    try:
+        from huggingface_hub import HfApi
+        api = HfApi(token=_read_env().get("HF_TOKEN", "") or None)
+        # Try to get version from the dataset's info.json
+        version = "v2.1"
+        try:
+            import tempfile
+            info_path = api.hf_hub_download(repo_id, "meta/info.json", repo_type="dataset")
+            info = json.loads(Path(info_path).read_text())
+            version = info.get("codebase_version", "v2.1")
+        except Exception:
+            pass
+        api.create_tag(repo_id, tag=version, repo_type="dataset")
+        return {"ok": True, "version": version}
+    except Exception as e:
+        err = str(e)
+        if "already exists" in err.lower() or "Reference already exists" in err:
+            # Tag already exists, that's fine
+            return {"ok": True, "version": version, "note": "already exists"}
+        return {"ok": False, "error": err}
 
 
 @app.post("/api/datasets/{name}/push-hf")
@@ -3088,12 +3146,8 @@ def _build_datacollect_cmd() -> list[str]:
         cam_fps = dc_cam.get("fps", 30)
         cam_w = dc_cam.get("width", 320)
         cam_h = dc_cam.get("height", 240)
-        fourcc = dc_cam.get("fourcc", "MJPG")
         part = (f"{cam_name}: {{type: opencv, index_or_path: {cam_c.get('index', 0)}, "
-                f"width: {cam_w}, height: {cam_h}, fps: {cam_fps}")
-        if fourcc:
-            part += f", fourcc: '{fourcc}'"
-        part += "}"
+                f"width: {cam_w}, height: {cam_h}, fps: {cam_fps}}}")
         cam_parts.append(part)
     cameras_str = "{" + ", ".join(cam_parts) + "}"
     fps = dc_cams.get("top", {}).get("fps", 30)
@@ -3395,6 +3449,14 @@ def _save_job_local(job_id: str, status_data: dict = None, log_lines: list = Non
     if log_lines and isinstance(log_lines, list):
         if len(log_lines) > len(existing.get("logs", [])):
             existing["logs"] = log_lines
+        # Extract W&B URL from logs if not already set
+        if not existing.get("wb_url"):
+            import re
+            for line in log_lines:
+                m = re.search(r'https://wandb\.ai/\S+', line)
+                if m:
+                    existing["wb_url"] = m.group(0).rstrip(')')
+                    break
     existing["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     job_path.write_text(json.dumps(existing, ensure_ascii=False, indent=1))
 
@@ -3702,6 +3764,15 @@ async def training_job_logs(job_id: str, tail: int = 100):
     local = json.loads(job_path.read_text())
     log_file = local.get("log_file", "")
 
+    # Try to extract W&B URL from early log lines if not yet found
+    if log_file and not local.get("wb_url"):
+        wr = _ssh_run_sync(f"grep -m1 'https://wandb.ai/' {log_file} 2>/dev/null || true", timeout=10)
+        if wr["ok"] and "https://wandb.ai/" in (wr["stdout"] or ""):
+            import re
+            m = re.search(r'https://wandb\.ai/\S+', wr["stdout"])
+            if m:
+                _save_job_local(job_id, {"wb_url": m.group(0).rstrip(')')})
+
     # Try to fetch logs from remote via SSH
     if log_file:
         r = _ssh_run_sync(f"tail -n {tail} {log_file} 2>/dev/null || echo '(log file not found)'", timeout=10)
@@ -3733,20 +3804,25 @@ async def training_stop_job(job_id: str):
 
 @app.post("/api/training/kill-all")
 async def training_kill_all():
-    results = {"killed": [], "errors": []}
+    results = {"killed": [], "cleaned": [], "errors": []}
     for f in TRAIN_LOG_DIR.glob("*.json"):
         try:
             local = json.loads(f.read_text())
             jid = local.get("job_id", f.stem)
-            if local.get("status") in ("running", "downloading", "queued"):
+            status = local.get("status", "")
+            if status in ("running", "downloading", "queued"):
                 tmux = local.get("tmux_session", "")
-                if tmux and local.get("status") != "queued":
+                if tmux and status != "queued":
                     _ssh_run_sync(f"tmux kill-session -t {tmux} 2>/dev/null || true", timeout=10)
-                new_status = "cancelled" if local.get("status") == "queued" else "stopped"
-                _save_job_local(jid, {"status": new_status, "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
                 results["killed"].append(jid)
+            # Delete all non-running job files (failed, stopped, cancelled, queued)
+            f.unlink()
+            if status in ("failed", "stopped", "cancelled"):
+                results["cleaned"].append(jid)
         except Exception as e:
             results["errors"].append(str(e))
+    # Also kill any leftover train_ tmux sessions
+    _ssh_run_sync("tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^train_' | xargs -I{} tmux kill-session -t {} 2>/dev/null || true", timeout=10)
     return {"ok": True, **results}
 
 
@@ -4072,7 +4148,6 @@ async def _eval_start_owned(body: dict):
     fps = int(body.get("fps", 30))
     cam_width = int(body.get("width", 320))
     cam_height = int(body.get("height", 240))
-    fourcc = body.get("fourcc", "").strip()
     cam_select = str(body.get("cam_count", "2"))
     chunk_size = int(body.get("chunk_size", 0))
     n_action_steps = int(body.get("n_action_steps", 0))
@@ -4120,7 +4195,6 @@ async def _eval_start_owned(body: dict):
             height=cam_height,
             chunk_size=chunk_size,
             n_action_steps=n_action_steps,
-            fourcc=fourcc,
         )
         ready = await asyncio.to_thread(vla_manager.ensure_model, cmd, str(model_id), 120.0)
         if not ready.get("ok"):
