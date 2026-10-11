@@ -217,10 +217,22 @@ def connect_robot():
 
 
 def disconnect_robot(*, keep_torque: bool = False):
+    # Signal all camera threads to stop
     for name, st in list(cam_state.items()):
         st["running"] = False
+    # Wait for threads to finish
     for name, st in list(cam_state.items()):
-        st["stopped"].wait(timeout=3)
+        st["stopped"].wait(timeout=5)
+    # Force release any remaining captures
+    for name, st in list(cam_state.items()):
+        try:
+            cap = st.get("cap")
+            if cap is not None:
+                cap.release()
+                st["cap"] = None
+                print(f"[Camera] '{name}' force-released")
+        except Exception:
+            pass
     cam_state.clear()
 
     with robot_io_lock:
@@ -255,6 +267,92 @@ def robot_send_positions(positions, owner=None):
         for j, v in positions.items():
             action[f"{j}.pos"] = float(v)
         rob.send_action(action)
+
+
+# ══════════ Restart All ══════════
+
+@app.post("/api/restart")
+async def restart_all():
+    """Kill this process and restart it — same as Ctrl+C then re-run."""
+    import signal
+
+    def _restart():
+        time.sleep(0.5)  # let the HTTP response go out
+        print("[Restart] Restarting server process...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    threading.Thread(target=_restart, daemon=True).start()
+    return {"ok": True, "restarting": True}
+
+
+# ══════════ Camera Check ══════════
+
+@app.post("/api/cameras/check")
+async def check_cameras(request: Request):
+    """Scan all camera indices (0-9) and return hstacked preview of every available one."""
+    import cv2
+
+    results = []
+    frames = []
+    max_idx = 10
+
+    for idx in range(max_idx):
+        # Check if any active thread is using this index
+        active_name = None
+        for name, st in cam_state.items():
+            cfg = load_config().get("robot", {}).get("cameras", {}).get(name, {})
+            if cfg.get("index") == idx and st.get("running"):
+                active_name = name
+                break
+
+        if active_name:
+            st = cam_state[active_name]
+            with st["lock"]:
+                frame = st["frame"].copy() if st["frame"] is not None else None
+            ok = frame is not None
+        else:
+            cap = cv2.VideoCapture(idx)
+            ok = False
+            frame = None
+            if cap.isOpened():
+                for _ in range(3):
+                    cap.grab()
+                ret, frame = cap.read()
+                ok = ret and frame is not None
+            cap.release()
+
+        if not ok:
+            continue
+
+        label = f"idx:{idx}"
+        if active_name:
+            label += f" ({active_name})"
+        results.append({"index": idx, "name": active_name, "ok": True})
+        # Large index number
+        cv2.putText(frame, str(idx), (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 4)
+        # Smaller name label below
+        if active_name:
+            cv2.putText(frame, active_name, (10, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        frames.append(frame)
+
+    if not frames:
+        return {"ok": True, "results": results, "preview": None, "message": "No cameras found"}
+
+    # hstack all frames (resize to same height)
+    target_h = max(f.shape[0] for f in frames)
+    resized = []
+    for f in frames:
+        if f.shape[0] != target_h:
+            ratio = target_h / f.shape[0]
+            f = cv2.resize(f, (int(f.shape[1] * ratio), target_h))
+        resized.append(f)
+    stacked = np.hstack(resized)
+    _, buf = cv2.imencode(".jpg", stacked, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    preview = base64.b64encode(buf.tobytes()).decode()
+
+    return {"ok": True, "results": results, "preview": preview}
 
 
 # ══════════ Setup & Config API ══════════
@@ -2917,17 +3015,33 @@ async def datacollect_verify():
     cam_frames = []
     for cam_name, cam_cfg in cams.items():
         idx = cam_cfg.get("index", 0)
-        cap = cv2.VideoCapture(idx)
-        cam_ok = False
-        frame = None
-        if cap.isOpened():
-            ret, frame = cap.read()
-            cam_ok = ret
-        cap.release()
-        checks.append({"name": f"Camera: {cam_name}", "detail": f"index {idx}", "ok": cam_ok,
-                        "error": "" if cam_ok else f"Cannot read from camera index {idx}"})
-        if cam_ok and frame is not None:
-            cam_frames.append(frame)
+        # Try to use already-running camera thread first
+        st = cam_state.get(cam_name)
+        if st and st.get("running"):
+            with st["lock"]:
+                frame = st["frame"].copy() if st["frame"] is not None else None
+            cam_ok = frame is not None
+            checks.append({"name": f"Camera: {cam_name}", "detail": f"index {idx}", "ok": cam_ok,
+                            "error": "" if cam_ok else f"Cannot read from camera index {idx}"})
+            if cam_ok:
+                cv2.putText(frame, f"{idx} ({cam_name})", (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 4)
+                cam_frames.append(frame)
+        else:
+            # No active thread — open camera directly to test
+            cap = cv2.VideoCapture(idx)
+            cam_ok = False
+            frame = None
+            if cap.isOpened():
+                ret, frame = cap.read()
+                cam_ok = ret
+            cap.release()
+            checks.append({"name": f"Camera: {cam_name}", "detail": f"index {idx}", "ok": cam_ok,
+                            "error": "" if cam_ok else f"Cannot read from camera index {idx}"})
+            if cam_ok and frame is not None:
+                cv2.putText(frame, f"{idx} ({cam_name})", (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 4)
+                cam_frames.append(frame)
 
     camera_preview = None
     if cam_frames:

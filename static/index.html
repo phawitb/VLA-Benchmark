@@ -403,6 +403,9 @@
     <div class="nav-item" data-tab="inference">VLA Inference</div>
     <div class="nav-item" data-tab="evaluate">Evaluate</div>
   </div>
+  <div style="padding:12px 16px;border-top:1px solid #e0e0e0">
+    <button onclick="restartAll()" id="restartAllBtn" style="width:100%;padding:8px 0;background:#e8453c;color:#fff;border:none;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer">Restart All</button>
+  </div>
 </div>
 
 <div class="panel-divider-sidebar" id="dividerSidebar"></div>
@@ -465,6 +468,13 @@
             <label class="form-label" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="dcCamExt4Enable" onchange="dcToggleExtCam()"> External4 Camera Index</label>
             <input type="number" id="dcCamExt4" min="0" max="10" step="1" style="width:80px;opacity:0.4" placeholder="-" disabled>
           </div>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+          <button class="btn btn-sm" onclick="dcCheckCameras()" id="dcCheckCamBtn" style="background:#1a73e8;font-size:0.78rem;padding:4px 14px">Check Cameras</button>
+          <span id="dcCheckCamStatus" style="font-size:0.82rem;color:#888"></span>
+        </div>
+        <div id="dcCheckCamPreview" style="display:none;margin-top:10px">
+          <img id="dcCheckCamImg" style="width:100%;border-radius:8px;border:1px solid #e0e0e0">
         </div>
       </div>
 
@@ -2383,6 +2393,46 @@ function evalBuildCamOptions() {
   sel.value = opts.includes(prev) ? prev : 'all';
 }
 
+async function restartAll() {
+  const btn = document.getElementById('restartAllBtn');
+  btn.textContent = 'Restarting...';
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  try { await fetch('/api/restart', {method: 'POST'}); } catch(e) {}
+  // Wait for server to come back, then reload page
+  const poll = setInterval(async () => {
+    try {
+      const r = await fetch('/api/config', {signal: AbortSignal.timeout(1000)});
+      if (r.ok) { clearInterval(poll); location.reload(); }
+    } catch(e) {}
+  }, 1000);
+}
+
+async function dcCheckCameras() {
+  const btn = document.getElementById('dcCheckCamBtn');
+  const st = document.getElementById('dcCheckCamStatus');
+  const preview = document.getElementById('dcCheckCamPreview');
+  btn.disabled = true;
+  st.textContent = 'Scanning idx 0-9...';
+  st.style.color = '#888';
+  preview.style.display = 'none';
+  try {
+    const r = await fetch('/api/cameras/check', {method:'POST', headers:{'Content-Type':'application/json'}, body: '{}'});
+    const d = await r.json();
+    if (d.ok && d.preview) {
+      preview.style.display = '';
+      document.getElementById('dcCheckCamImg').src = 'data:image/jpeg;base64,' + d.preview;
+      const found = d.results.map(c => 'idx:' + c.index + (c.name ? ` (${c.name})` : '')).join(', ');
+      st.textContent = `Found ${d.results.length} camera(s): ${found}`;
+      st.style.color = '#34a853';
+    } else {
+      st.textContent = d.message || 'No cameras found';
+      st.style.color = '#e8453c';
+    }
+  } catch(e) { st.textContent = 'Error: ' + e.message; st.style.color = '#e8453c'; }
+  btn.disabled = false;
+}
+
 function dcResetFields() {
   document.getElementById('dcDatasetName').value = '';
   document.getElementById('dcTask').value = '';
@@ -2693,6 +2743,8 @@ let vizChart = null;
 let vizEpisodesData = [];
 let vizPlaying = false;
 let vizAnimFrame = null;
+let vizPlayStartWall = 0;   // performance.now() when play started
+let vizPlayStartVideo = 0;  // video-time offset when play started
 let vizEpStart = 0;  // video start timestamp for current episode
 let vizEpEnd = 0;    // video end timestamp
 let vizFrameCount = 0;
@@ -5582,7 +5634,9 @@ async function vizLoadEpisode() {
   // Seek all videos to their respective episode start
   document.querySelectorAll('.viz-video').forEach(v => {
     const startTime = parseFloat(v.dataset.epStart) || vizEpStart;
-    v.addEventListener('loadedmetadata', () => { v.currentTime = startTime; });
+    const doSeek = () => { v.currentTime = startTime; };
+    if (v.readyState >= 1) { doSeek(); }
+    else { v.addEventListener('loadedmetadata', doSeek, {once: true}); }
   });
   // Reset scrubber, time, segments
   document.getElementById('vizScrubber').value = 0;
@@ -5607,14 +5661,61 @@ async function vizLoadEpisode() {
 function vizTogglePlay() {
   if (vizPlaying) {
     vizStopPlay();
-  } else {
-    vizPlaying = true;
-    const btn = document.getElementById('vizPlayBtn');
-    btn.textContent = 'Pause';
-    btn.style.background = '#d93025';
-    document.querySelectorAll('.viz-video').forEach(v => v.play());
-    vizAnimFrame = requestAnimationFrame(vizUpdateLoop);
+    return;
   }
+  const videos = document.querySelectorAll('.viz-video');
+  if (!videos.length) return;
+
+  vizPlaying = true;
+  const btn = document.getElementById('vizPlayBtn');
+  btn.textContent = 'Pause';
+  btn.style.background = '#d93025';
+  videos.forEach(v => v.play());
+  vizAnimFrame = requestAnimationFrame(vizUpdateLoop);
+}
+
+function vizUpdateLoop() {
+  if (!vizPlaying) return;
+  try {
+    const videos = document.querySelectorAll('.viz-video');
+    if (!videos.length) return;
+    const v = videos[0];
+    const vStart = parseFloat(v.dataset.epStart) || vizEpStart;
+    const vEnd = parseFloat(v.dataset.epEnd) || vizEpEnd;
+
+    // Frame-duration correction to avoid showing next episode's first frame
+    const frameDur = vizFrameCount > 1 ? (vEnd - vStart) / vizFrameCount : 0.033;
+    const effectiveEnd = vEnd - frameDur;
+    const effectiveDuration = effectiveEnd - vStart;
+
+    const elapsed = v.currentTime - vStart;
+    const pct = effectiveDuration > 0 ? Math.min(100, Math.max(0, (elapsed / effectiveDuration) * 100)) : 0;
+
+    // Sync other videos
+    for (let i = 1; i < videos.length; i++) {
+      const vi = videos[i];
+      const viStart = parseFloat(vi.dataset.epStart) || vizEpStart;
+      const viEnd = parseFloat(vi.dataset.epEnd) || vizEpEnd;
+      const viFrameDur = vizFrameCount > 1 ? (viEnd - viStart) / vizFrameCount : 0.033;
+      const viEffEnd = viEnd - viFrameDur;
+      const target = viStart + (pct / 100) * (viEffEnd - viStart);
+      if (Math.abs(vi.currentTime - target) > 0.1) vi.currentTime = target;
+    }
+
+    const mainDuration = vizEpEnd - vizEpStart;
+    document.getElementById('vizScrubber').value = pct;
+    document.getElementById('vizTimeDisplay').textContent = ((pct / 100) * mainDuration).toFixed(1) + 's';
+    vizUpdateChartCursor(pct);
+    vizUpdatePhaseLabel(pct);
+
+    if (v.currentTime >= effectiveEnd) {
+      vizStopPlay();
+      return;
+    }
+  } catch(e) {
+    console.error('vizUpdateLoop error:', e);
+  }
+  vizAnimFrame = requestAnimationFrame(vizUpdateLoop);
 }
 
 function vizStopPlay() {
@@ -5624,32 +5725,6 @@ function vizStopPlay() {
   btn.style.background = '#34a853';
   document.querySelectorAll('.viz-video').forEach(v => v.pause());
   if (vizAnimFrame) { cancelAnimationFrame(vizAnimFrame); vizAnimFrame = null; }
-}
-
-function vizUpdateLoop() {
-  if (!vizPlaying) return;
-  const videos = document.querySelectorAll('.viz-video');
-  if (!videos.length) return;
-  // Use first video's own timestamps for progress
-  const v = videos[0];
-  const vStart = parseFloat(v.dataset.epStart) || vizEpStart;
-  const vEnd = parseFloat(v.dataset.epEnd) || vizEpEnd;
-  const vDuration = vEnd - vStart;
-  const elapsed = v.currentTime - vStart;
-  const pct = vDuration > 0 ? Math.min(100, Math.max(0, (elapsed / vDuration) * 100)) : 0;
-
-  const mainDuration = vizEpEnd - vizEpStart;
-  document.getElementById('vizScrubber').value = pct;
-  document.getElementById('vizTimeDisplay').textContent = ((pct / 100) * mainDuration).toFixed(1) + 's';
-  vizUpdateChartCursor(pct);
-  vizUpdatePhaseLabel(pct);
-
-  // Stop at episode end
-  if (v.currentTime >= vEnd - 0.05) {
-    vizStopPlay();
-    return;
-  }
-  vizAnimFrame = requestAnimationFrame(vizUpdateLoop);
 }
 
 function vizScrub(pct) {
@@ -5688,7 +5763,9 @@ function vizParseObject(task) {
   if (m) return m[1];
   m = task.match(/pick\s+up\s+the\s+(.+)/i);
   if (m) return m[1].trim().replace(/\.$/, '');
-  m = task.match(/(?:move|put|bring|grab)\s+the\s+(.+?)\s+(?:to|into|onto)\s+/i);
+  m = task.match(/pick\s+up\s+(.+)/i);
+  if (m) return m[1].trim().replace(/\.$/, '');
+  m = task.match(/(?:move|put|bring|grab)\s+(?:the\s+)?(.+?)\s+(?:to|into|onto)\s+/i);
   if (m) return m[1];
   return 'object';
 }
@@ -5752,12 +5829,19 @@ function vizDetectSegments(frames, task) {
   if(valleyStart>=0) splitFrame = Math.floor((valleyStart+valleyEnd)/2);
   else splitFrame = Math.floor((p1+p2)/2);
 
-  // Build segments: [idle?] [pick] [place] [idle?]
+  // Check if task has a place destination
+  const hasPlace = /to\s+the|and\s+place|in\s+the|into\s+the|onto\s+the/i.test(task || '');
+
+  // Build segments
   const segs = [];
   if(activeStart > 0)
     segs.push({start:0, end:activeStart-1, phase:'idle', label:'idle'});
-  segs.push({start:activeStart, end:splitFrame, phase:'pick', label:pickLabel});
-  segs.push({start:splitFrame+1, end:activeEnd, phase:'place', label:placeLabel});
+  if (hasPlace) {
+    segs.push({start:activeStart, end:splitFrame, phase:'pick', label:pickLabel});
+    segs.push({start:splitFrame+1, end:activeEnd, phase:'place', label:placeLabel});
+  } else {
+    segs.push({start:activeStart, end:activeEnd, phase:'pick', label:pickLabel});
+  }
   if(activeEnd < n-1)
     segs.push({start:activeEnd+1, end:n-1, phase:'idle', label:'idle'});
 
@@ -5951,6 +6035,19 @@ const vizSegmentPlugin = {
   }
 };
 
+// ── Chart Cursor ──
+function vizUpdateChartCursor(pct) {
+  const cursor = document.getElementById('vizChartCursor');
+  if (!vizChart || !cursor) return;
+  const area = vizChart.chartArea;
+  if (!area) { cursor.style.display = 'none'; return; }
+  const x = area.left + (pct / 100) * (area.right - area.left);
+  cursor.style.display = '';
+  cursor.style.left = x + 'px';
+  cursor.style.top = area.top + 'px';
+  cursor.style.height = (area.bottom - area.top) + 'px';
+}
+
 // ── Chart Drawing ──
 
 async function vizDrawChart(frames) {
@@ -5963,7 +6060,7 @@ async function vizDrawChart(frames) {
     const saved = await vizLoadSegments(vizCurrentDataset, ep);
     if (saved) {
       vizSegments = saved;
-    } else if (/pick\s+up\s+.+\s+(to\s+the|and\s+place|in\s+the|into\s+the|onto\s+the)\s+/i.test(vizCurrentTask || '')) {
+    } else if (/pick\s+up|place|move|grab|put/i.test(vizCurrentTask || '')) {
       vizSegments = vizDetectSegments(frames, vizCurrentTask);
     } else {
       vizSegments = [{start:0, end:frames.length-1, phase:'idle', label:'idle'}];
@@ -5976,7 +6073,7 @@ async function vizDrawChart(frames) {
   const datasets = VIZ_JOINTS.map((j, ji) => ({
     label: j,
     data: frames.map(f => {
-      const a = f.action;
+      const a = f.state || f.action;
       return Array.isArray(a) ? a[ji] : null;
     }),
     borderColor: VIZ_COLORS[ji],
