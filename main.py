@@ -3,6 +3,7 @@
 import asyncio
 import atexit
 import base64
+import datetime
 import io
 import json
 import math
@@ -142,6 +143,8 @@ vla_manager = VlaProcessManager(max_log_lines=500)
 atexit.register(vla_manager.stop)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+Path("data/eval_videos").mkdir(parents=True, exist_ok=True)
+app.mount("/data/eval_videos", StaticFiles(directory="data/eval_videos"), name="eval_videos")
 
 ROBOT_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 robot_state = {"robot": None, "connected": False}
@@ -4457,6 +4460,17 @@ async def eval_stop():
             "model_ready": bool(worker.get("model_ready")),
             "pid": worker.get("pid"),
         }
+    # Stop video recording FIRST so worker can finalize ffmpeg before being stopped
+    video_filename = None
+    if eval_video_state["recording"]:
+        signal_file = EVAL_VIDEOS_DIR / ".recording.json"
+        signal_file.unlink(missing_ok=True)
+        # Wait for worker to notice signal removal and close ffmpeg
+        await asyncio.sleep(1.5)
+        video_filename = os.path.basename(eval_video_state["video_path"]) if eval_video_state["video_path"] else None
+        eval_video_state["recording"] = False
+    eval_video_state["stop_event"] = None
+
     phase = eval_state.get("phase", "running")
     start_in_flight = phase in {"starting", "connecting"}
     if start_in_flight:
@@ -4475,16 +4489,6 @@ async def eval_stop():
     if not start_in_flight:
         release_robot_operation("eval")
 
-    video_filename = None
-    if eval_video_state["recording"] and eval_video_state["stop_event"]:
-        eval_video_state["stop_event"].set()
-        for _ in range(100):
-            if not eval_video_state["recording"]:
-                break
-            time.sleep(0.1)
-        video_filename = os.path.basename(eval_video_state["video_path"]) if eval_video_state["video_path"] else None
-    eval_video_state["stop_event"] = None
-
     worker = vla_manager.status()
     if not released.get("ok"):
         return {
@@ -4500,6 +4504,34 @@ async def eval_stop():
         "model_ready": bool(worker.get("model_ready")),
         "pid": worker.get("pid"),
     }
+
+
+@app.post("/api/eval/start-recording")
+async def eval_start_recording(request: Request):
+    """Signal the VLA worker to start recording video via a file-based trigger."""
+    body = await request.json()
+    fps = int(body.get("fps", 30))
+    width = int(body.get("width", 320))
+    height = int(body.get("height", 240))
+
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    video_filename = f"eval_{ts}.mp4"
+    video_path = EVAL_VIDEOS_DIR / video_filename
+
+    # Write signal file that infer_python.py watches
+    signal_file = EVAL_VIDEOS_DIR / ".recording.json"
+    signal_file.write_text(json.dumps({
+        "video_path": str(video_path),
+        "fps": fps,
+        "width": width,
+        "height": height,
+    }))
+
+    eval_video_state["recording"] = True
+    eval_video_state["stop_event"] = threading.Event()
+    eval_video_state["video_path"] = str(video_path)
+
+    return {"ok": True, "video_filename": video_filename}
 
 
 @app.post("/api/eval/unload")
@@ -4772,12 +4804,16 @@ async def hf_logout():
         return {"ok": False, "error": str(e)}
 
 
+MODELS_DIR = Path("models")
+MODELS_DIR.mkdir(exist_ok=True)
+
+
 @app.get("/api/hf-models")
 async def list_hf_models():
     cfg = load_config()
     hf_user = str(cfg.get("hf_repo_name", "")).strip()
     if not hf_user:
-        return {"ok": True, "models": []}
+        return {"ok": True, "models": [], "hf_user": ""}
     try:
         from huggingface_hub import HfApi
         token = _read_env().get("HF_TOKEN") or None
@@ -4785,10 +4821,131 @@ async def list_hf_models():
         models = []
         for m in api.list_models(author=hf_user, sort="lastModified", limit=100):
             name = m.id.rsplit("/", 1)[-1]
-            models.append({"repo_id": m.id, "name": name})
-        return {"ok": True, "models": models}
+            local_path = MODELS_DIR / name
+            local_exists = local_path.exists() and any(local_path.iterdir()) if local_path.exists() else False
+            models.append({"repo_id": m.id, "id": m.id, "name": name, "local_exists": local_exists})
+        return {"ok": True, "models": models, "hf_user": hf_user}
     except Exception as e:
         return {"ok": False, "error": str(e), "models": []}
+
+
+# ── Model Download ──
+_model_download_state = {"running": False, "status": "", "log_lines": [], "error": None}
+
+
+@app.post("/api/model-download")
+async def model_download_start(request: Request):
+    body = await request.json()
+    repo_id = body.get("repo_id", "")
+    model_name = body.get("model_name", "")
+    if not repo_id:
+        return {"ok": False, "error": "No repo_id provided"}
+    if _model_download_state["running"]:
+        return {"ok": False, "error": "A download is already in progress"}
+
+    _model_download_state.update({"running": True, "status": "Starting download...", "log_lines": [], "error": None})
+
+    import threading
+    def _download():
+        try:
+            from huggingface_hub import snapshot_download, HfApi
+            token = _read_env().get("HF_TOKEN") or None
+            local_dir = MODELS_DIR / (model_name or repo_id.rsplit("/", 1)[-1])
+            # List files for progress tracking
+            try:
+                api = HfApi(token=token)
+                repo_files = list(api.list_repo_files(repo_id, token=token))
+                total_files = len(repo_files)
+                _model_download_state["log_lines"].append(f"Downloading {repo_id} ({total_files} files)")
+            except Exception:
+                total_files = 0
+                _model_download_state["log_lines"].append(f"Downloading {repo_id}")
+
+            # Monitor progress in background
+            _stop_monitor = threading.Event()
+            def _monitor():
+                seen = set()
+                while not _stop_monitor.is_set():
+                    if local_dir.exists():
+                        current = set(str(p.relative_to(local_dir)) for p in local_dir.rglob("*") if p.is_file() and ".cache" not in str(p))
+                        new_files = current - seen
+                        for nf in sorted(new_files):
+                            _model_download_state["log_lines"].append(f"  ✓ {nf}")
+                        seen = current
+                        if total_files:
+                            _model_download_state["status"] = f"Downloading {repo_id}... ({len(seen)}/{total_files} files)"
+                    _stop_monitor.wait(2)
+            mon = threading.Thread(target=_monitor, daemon=True)
+            mon.start()
+
+            snapshot_download(
+                repo_id=repo_id,
+                local_dir=str(local_dir),
+                token=token,
+            )
+            _stop_monitor.set()
+            mon.join(timeout=3)
+            _model_download_state["status"] = "Download complete"
+            _model_download_state["log_lines"].append(f"Download complete! ({total_files} files)")
+        except Exception as e:
+            _model_download_state["error"] = str(e)
+            _model_download_state["status"] = f"Error: {e}"
+            _model_download_state["log_lines"].append(f"Error: {e}")
+        finally:
+            _model_download_state["running"] = False
+
+    threading.Thread(target=_download, daemon=True).start()
+    return {"ok": True}
+
+
+@app.get("/api/model-download/status")
+async def model_download_status():
+    return {
+        "running": _model_download_state["running"],
+        "status": _model_download_state["status"],
+        "log_lines": _model_download_state["log_lines"],
+        "error": _model_download_state["error"],
+    }
+
+
+@app.post("/api/model-download-batch")
+async def model_download_batch(request: Request):
+    body = await request.json()
+    models = body.get("models", [])
+    if not models:
+        return {"ok": False, "error": "No models provided"}
+    if _model_download_state["running"]:
+        return {"ok": False, "error": "A download is already in progress"}
+
+    _model_download_state.update({"running": True, "status": "Starting batch download...", "log_lines": [], "error": None})
+
+    import threading
+    def _download_batch():
+        try:
+            from huggingface_hub import snapshot_download
+            token = _read_env().get("HF_TOKEN") or None
+            total = len(models)
+            for i, m in enumerate(models):
+                repo_id = m.get("repo_id", "")
+                name = m.get("name", repo_id.rsplit("/", 1)[-1])
+                local_dir = MODELS_DIR / name
+                _model_download_state["status"] = f"Downloading {i+1}/{total}: {name}"
+                _model_download_state["log_lines"].append(f"[{i+1}/{total}] Downloading {repo_id}...")
+                try:
+                    snapshot_download(repo_id=repo_id, local_dir=str(local_dir), token=token)
+                    _model_download_state["log_lines"].append(f"[{i+1}/{total}] Done: {name}")
+                except Exception as e:
+                    _model_download_state["log_lines"].append(f"[{i+1}/{total}] Error: {name} - {e}")
+            _model_download_state["status"] = f"Batch download complete ({total} models)"
+            _model_download_state["log_lines"].append(f"All {total} models downloaded!")
+        except Exception as e:
+            _model_download_state["error"] = str(e)
+            _model_download_state["status"] = f"Error: {e}"
+        finally:
+            _model_download_state["running"] = False
+
+    threading.Thread(target=_download_batch, daemon=True).start()
+    return {"ok": True}
 
 
 @app.get("/api/hf-datasets")

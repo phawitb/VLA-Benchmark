@@ -238,7 +238,7 @@ def _signal_handler(sig, frame):
 
 def main():
     global _running
-    _, torch = prepare_runtime()
+    cv2, torch = prepare_runtime()
 
     args = parse_args()
 
@@ -384,9 +384,6 @@ def main():
             prefix_embs, prefix_pad_masks, prefix_att_masks = model.embed_prefix(
                 images, img_masks, lang_tokens, lang_masks, state=state
             )
-            # Predict progress from prefix embedding
-            if hasattr(model, "predict_progress"):
-                model._last_progress = model.predict_progress(prefix_embs, prefix_pad_masks)
             t_embed = time.time()
 
             prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
@@ -461,6 +458,100 @@ def main():
     period = 1.0 / args.fps
     step = 0
     cycle_start = 0
+
+    # Video recording state (file-signal based)
+    video_writer = None
+    video_rec_meta = {}  # {width, height, cam_names}
+    video_signal_path = Path("data/eval_videos/.recording.json")
+    video_check_interval = 10  # check every N steps
+
+    def _check_video_signal(obs, writer):
+        """Check if recording should start/stop based on signal file."""
+        import subprocess as _sp
+        import numpy as np
+        if video_signal_path.exists():
+            if writer is None:
+                try:
+                    sig = json.loads(video_signal_path.read_text())
+                    vpath = sig["video_path"]
+                    vfps = sig.get("fps", args.fps)
+                    vw = sig.get("width", args.width)
+                    vh = sig.get("height", args.height)
+                    cam_names = list(cameras_dict.keys())
+                    out_w = vw * len(cam_names)
+                    video_rec_meta["width"] = vw
+                    video_rec_meta["height"] = vh
+                    video_rec_meta["cam_names"] = cam_names
+                    video_rec_meta["frame_count"] = 0
+                    # Use ffmpeg for H.264 encoding (browser-compatible)
+                    ffmpeg_cmd = [
+                        "ffmpeg", "-y",
+                        "-f", "rawvideo",
+                        "-vcodec", "rawvideo",
+                        "-pix_fmt", "bgr24",
+                        "-s", f"{out_w}x{vh}",
+                        "-r", str(vfps),
+                        "-i", "-",
+                        "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p",
+                        "-preset", "ultrafast",
+                        "-crf", "23",
+                        "-movflags", "+faststart",
+                        vpath,
+                    ]
+                    writer = _sp.Popen(ffmpeg_cmd, stdin=_sp.PIPE, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                    print(f"[infer_python] Video recording started (ffmpeg H.264): {vpath}", flush=True)
+                except Exception as e:
+                    print(f"[infer_python] Video signal error: {e}", flush=True)
+            if writer is not None:
+                _write_video_frame(obs, writer)
+        elif writer is not None:
+            try:
+                writer.stdin.close()
+                writer.wait(timeout=10)
+            except Exception:
+                writer.kill()
+            n = video_rec_meta.get("frame_count", 0)
+            video_rec_meta.clear()
+            print(f"[infer_python] Video recording stopped ({n} frames)", flush=True)
+            writer = None
+        return writer
+
+    def _write_video_frame(obs, writer):
+        """Write current observation frames to ffmpeg stdin."""
+        import numpy as np
+        frames = []
+        vw = video_rec_meta["width"]
+        vh = video_rec_meta["height"]
+        for cam_name in video_rec_meta["cam_names"]:
+            frame = None
+            for key in (cam_name, f"observation.images.{cam_name}"):
+                if key in obs:
+                    frame = obs[key]
+                    break
+            if frame is not None:
+                if hasattr(frame, "detach"):
+                    frame = frame.detach().cpu().numpy()
+                frame = np.asarray(frame)
+                if frame.ndim == 3 and frame.shape[0] in (1, 3, 4) and frame.shape[-1] not in (1, 3, 4):
+                    frame = np.moveaxis(frame, 0, -1)
+                if frame.dtype != np.uint8:
+                    scale = 255.0 if frame.size and float(frame.max()) <= 1.0 else 1.0
+                    frame = np.clip(frame * scale, 0, 255).astype(np.uint8)
+                if frame.ndim == 3 and frame.shape[-1] == 3:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                frame = cv2.resize(frame, (vw, vh))
+            else:
+                frame = np.zeros((vh, vw, 3), dtype=np.uint8)
+            frames.append(frame)
+        if frames:
+            combined = np.hstack(frames)
+            try:
+                writer.stdin.write(combined.tobytes())
+                video_rec_meta["frame_count"] = video_rec_meta.get("frame_count", 0) + 1
+            except BrokenPipeError:
+                pass
+
     print(f"[infer_python] Starting inference loop at {args.fps} FPS", flush=True)
     print("[infer_python] Press Ctrl+C to stop", flush=True)
 
@@ -471,6 +562,10 @@ def main():
             # Get observation from robot
             obs = robot.get_observation()
             t_obs = time.time()
+
+            # Video recording (check signal every N steps)
+            if step % video_check_interval == 0 or video_writer is not None:
+                video_writer = _check_video_signal(obs, video_writer)
 
             # Build inference frame
             obs_frame = build_inference_frame(
@@ -505,17 +600,6 @@ def main():
                 action = policy.select_action(obs_processed)
             t_action = time.time()
 
-            # Read progress prediction (updated each time model runs a new chunk)
-            progress = None
-            last_prog = getattr(policy, "_last_progress", None)
-            model_prog = getattr(policy.model, "_last_progress", None) if hasattr(policy, "model") else None
-            if queue_empty:
-                print(f"[infer_python] DEBUG progress: policy._last_progress={last_prog}, model._last_progress={model_prog}", flush=True)
-            if last_prog is not None:
-                progress = float(last_prog.squeeze().clamp(0.0, 1.0))
-            elif model_prog is not None:
-                progress = float(model_prog.squeeze().clamp(0.0, 1.0))
-
             # Postprocess
             action = postprocess(action)
             action = make_robot_action(action, dataset_features)
@@ -527,17 +611,12 @@ def main():
 
             step += 1
 
-            # Emit progress event on prediction steps
-            if args.persistent_worker and queue_empty and progress is not None:
-                emit_worker_event("PROGRESS", {"step": step, "progress": round(progress, 4)})
-
             # Detailed timing every second + on predict steps
             if step <= 3 or step % args.fps == 0 or queue_empty:
                 ms = lambda a, b: f"{(b-a)*1000:.1f}ms"
                 predict_tag = " ** PREDICT **" if queue_empty else " (reuse)"
-                progress_str = f" progress={progress:.4f}" if progress is not None else ""
                 print(
-                    f"[infer_python] Step {step}{predict_tag}{progress_str} | "
+                    f"[infer_python] Step {step}{predict_tag} | "
                     f"obs={ms(t0,t_obs)} frame={ms(t_obs,t_frame)} preprocess={ms(t_frame,t_preprocess)} "
                     f"action={ms(t_preprocess,t_action)} postprocess={ms(t_action,t_post)} send={ms(t_post,t_send)} "
                     f"TOTAL={ms(t0,t_send)}",
@@ -616,6 +695,13 @@ def main():
         return 1
     finally:
         print(f"[infer_python] Stopping after {step} steps")
+        if video_writer is not None:
+            try:
+                video_writer.stdin.close()
+                video_writer.wait(timeout=10)
+            except Exception:
+                video_writer.kill()
+            print(f"[infer_python] Video recording finalized ({video_rec_meta.get('frame_count', 0)} frames)")
         try:
             if hardware_connected:
                 disconnect_robot_hardware(robot, keep_torque=False)

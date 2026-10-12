@@ -1623,7 +1623,7 @@ Effective: ~370ms / 50 = 7.4ms per action (amortized)</pre>
               <button class="btn btn-sm btn-danger" onclick="evalResetSession()" style="font-size:0.72rem;padding:2px 10px">Reset</button>
             </div>
           </div>
-          <div id="evalResultsList" style="max-height:500px;overflow-y:auto">
+          <div id="evalResultsList" style="max-height:500px;overflow-y:auto;overflow-x:hidden">
             <div style="padding:10px;text-align:center;color:#888;font-size:0.85rem">No results yet.</div>
           </div>
         </div>
@@ -7024,7 +7024,7 @@ async function evalTestInference() {
     const r = await fetch('/api/eval/start', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(_evalBuildBody()),
+      body: JSON.stringify({..._evalBuildBody(), duration: 99999}),
     });
     const d = await r.json();
     if (!d.ok) {
@@ -7033,7 +7033,7 @@ async function evalTestInference() {
       stopBtn.style.display = 'none';
       return;
     }
-    st.innerHTML = '<span style="color:#34a853">Running...</span>';
+    st.innerHTML = '<span style="color:#34a853">Running... (press Stop to end)</span>';
     // Poll log into evalLog
     evalTestPollTimer = setInterval(async () => {
       try {
@@ -7298,6 +7298,7 @@ async function evalStartEpisode() {
   // 1) Ensure the model worker is warm, then attach robot/cameras for this episode
   st.innerHTML = '<span style="color:#1a73e8">Loading model / connecting robot...</span>';
   cdEl.style.display = 'none';
+  let modelReused = false;
   try {
     const r = await fetch('/api/eval/start', {
       method: 'POST',
@@ -7312,6 +7313,7 @@ async function evalStartEpisode() {
       document.getElementById('evalStopBtn').style.display = 'none';
       return;
     }
+    modelReused = !!d.reused_model;
   } catch(e) {
     st.textContent = 'Error: ' + e.message;
     document.getElementById('evalRunBtn').disabled = false;
@@ -7323,7 +7325,9 @@ async function evalStartEpisode() {
   const initStart = Date.now();
 
   // 2) Poll log — wait for robot ready, then start countdown
-  st.innerHTML = '<span style="color:#1a73e8">Model ready — starting episode...</span>';
+  st.innerHTML = modelReused
+    ? '<span style="color:#1a73e8">Model already loaded — starting episode...</span>'
+    : '<span style="color:#1a73e8">Model ready — starting episode...</span>';
   cdEl.style.display = '';
   cdEl.textContent = 'init...';
 
@@ -7552,7 +7556,7 @@ function evalRenderResults() {
         <span style="flex:1"></span>
         ${hasDetail?`<span style="font-size:0.65rem;color:#aaa;flex-shrink:0" id="evalDetailBtn_${i}">&#9660; detail</span>`:''}
         <span style="font-size:0.7rem;color:#aaa;flex-shrink:0">${time}</span>
-        <select onclick="event.stopPropagation()" onchange="evalEditResult(${i},this.value)" style="font-size:0.7rem;border:1px solid #ddd;border-radius:4px;padding:2px 6px;color:#555;background:#fff;cursor:pointer;flex-shrink:0">
+        <select onclick="event.stopPropagation()" onchange="evalEditResult(${i},this.value)" style="font-size:0.7rem;border:1px solid #ddd;border-radius:4px;padding:2px 6px;color:#555;background:#fff;cursor:pointer;max-width:90px;min-width:70px">
           <option value="1-attempt" ${r.result==='1-attempt'?'selected':''}>1-Attempt</option>
           <option value="2-attempt" ${r.result==='2-attempt'?'selected':''}>2-Attempt</option>
           <option value="3-attempt" ${r.result==='3-attempt'?'selected':''}>3-Attempt</option>
