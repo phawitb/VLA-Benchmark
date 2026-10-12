@@ -4358,6 +4358,35 @@ async def _eval_start_owned(body: dict):
         disconnect_robot()
         time.sleep(1.0)
 
+    # Challenge environment: generate augmentation params for this episode
+    # Seed is based on episode number so same episode = same augmentation across models
+    challenge_env = body.get("challenge_env")
+    augment_params = None
+    augment_seed = None
+    if challenge_env and challenge_env.get("enabled"):
+        episode = int(body.get("episode", 1))
+        augment_seed = episode
+        random.seed(augment_seed)
+        np.random.seed(augment_seed)
+        ch_intensity = int(challenge_env.get("intensity", 3))
+        ch_camera = challenge_env.get("camera", {})
+        ch_light = challenge_env.get("light", {})
+        cam_p = _augp_camera(ch_camera, intensity=ch_intensity)
+        light_p = _augp_light(ch_light, intensity=ch_intensity)
+        # Restore RNG to non-deterministic state
+        random.seed()
+        np.random.seed()
+        if cam_p or light_p:
+            augment_params = {}
+            if cam_p:
+                # Convert numpy arrays to lists for JSON serialization
+                serializable_cam = {}
+                for k, v in cam_p.items():
+                    serializable_cam[k] = v.tolist() if hasattr(v, 'tolist') else v
+                augment_params["camera"] = serializable_cam
+            if light_p:
+                augment_params["light"] = light_p
+
     reset_pos = _eval_load_reset_position()
     if reset_pos:
         ok, err = _eval_move_to_reset(owner="eval", acquire=False)
@@ -4418,6 +4447,7 @@ async def _eval_start_owned(body: dict):
             str(verification_image),
             max(120.0, duration + 30.0),
             30.0,
+            augment_params,
         )
         with eval_lifecycle_lock:
             cancelled = start_token is not None and (
@@ -4439,12 +4469,16 @@ async def _eval_start_owned(body: dict):
             eval_state["reader_thread"] = None
             eval_state["log_lines"] = []
             eval_state["worker_pid"] = started.get("pid")
-        return {
+        result = {
             "ok": True,
             "pid": started.get("pid"),
             "reused_model": bool(ready.get("reused")),
             "cmd": " ".join(cmd),
         }
+        if augment_params:
+            result["augment_params"] = augment_params
+            result["augment_seed"] = augment_seed
+        return result
     except Exception as e:
         await asyncio.to_thread(vla_manager.stop)
         return {"ok": False, "error": str(e)}
@@ -4820,7 +4854,19 @@ async def list_hf_models():
             models.append({"repo_id": m.id, "id": m.id, "name": name, "local_exists": local_exists})
         return {"ok": True, "models": models, "hf_user": hf_user}
     except Exception as e:
-        return {"ok": False, "error": str(e), "models": []}
+        # Fallback: show locally downloaded models even if HF API fails
+        local_models = []
+        if MODELS_DIR.exists():
+            for d in sorted(MODELS_DIR.iterdir()):
+                if d.is_dir() and (d / "config.json").exists():
+                    local_models.append({
+                        "repo_id": f"{hf_user}/{d.name}",
+                        "id": f"{hf_user}/{d.name}",
+                        "name": d.name,
+                        "local_exists": True,
+                    })
+        return {"ok": True, "models": local_models, "hf_user": hf_user,
+                "warning": f"HF API unavailable ({type(e).__name__}), showing local models only"}
 
 
 # ── Model Download ──

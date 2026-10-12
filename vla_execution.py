@@ -305,6 +305,7 @@ class VlaProcessManager:
         verification_image: str,
         verification_timeout: float = 120.0,
         timeout: float = 30.0,
+        augment: dict | None = None,
     ) -> dict:
         current = self.status()
         if not current["model_ready"]:
@@ -312,13 +313,16 @@ class VlaProcessManager:
         with self._lock:
             self._state = "connecting_vla_hardware"
             self._active_task = None  # reset so _wait_for detects new HARDWARE_READY
-        sent = self._send_command({
+        payload = {
             "command": "run_task",
             "task": task,
             "max_steps": int(max_steps),
             "verification_image": verification_image,
             "verification_timeout": float(verification_timeout),
-        })
+        }
+        if augment:
+            payload["augment"] = augment
+        sent = self._send_command(payload)
         if not sent.get("ok"):
             return sent
         return self._wait_for(

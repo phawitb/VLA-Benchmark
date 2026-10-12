@@ -1532,6 +1532,48 @@ Effective: ~370ms / 50 = 7.4ms per action (amortized)</pre>
               <input type="number" id="evalNActionSteps" class="form-input" placeholder="default" min="1" max="500" oninput="evalUpdateCmd();evalConfigChanged()">
             </div>
           </div>
+          <!-- Challenge Environment -->
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer" onclick="document.getElementById('evalChallengeBody').style.display=document.getElementById('evalChallengeBody').style.display==='none'?'':'none';this.querySelector('.chevron').textContent=document.getElementById('evalChallengeBody').style.display==='none'?'\u25B6':'\u25BC'">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="event.stopPropagation()">
+                <input type="checkbox" id="evalChallengeEnabled" onchange="evalConfigChanged()">
+                <span style="font-size:0.85rem;font-weight:600;color:#6a1b9a">Challenge Environment</span>
+              </label>
+              <span style="font-size:0.72rem;color:#aaa">Simulate challenging conditions during inference</span>
+              <span class="chevron" style="font-size:0.7rem;color:#aaa;margin-left:auto">&#9654;</span>
+            </div>
+            <div id="evalChallengeBody" style="display:none">
+              <div style="margin-bottom:10px">
+                <label class="form-label">Intensity (1-5)</label>
+                <input type="range" id="evalChallengeIntensity" min="1" max="5" value="3" style="width:200px" onchange="evalConfigChanged()">
+                <div style="display:flex;justify-content:space-between;width:200px;font-size:0.72rem;color:#999"><span>Subtle</span><span>Strong</span></div>
+              </div>
+              <div style="display:flex;gap:12px;flex-wrap:wrap">
+                <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;flex:1;min-width:200px">
+                  <label style="font-weight:600;font-size:0.82rem"><input type="checkbox" id="evalChCamEnabled" checked onchange="evalConfigChanged()"> Camera Shift</label>
+                  <div style="font-size:0.72rem;color:#999;margin:2px 0 4px 18px">Geometric transforms on camera images</div>
+                  <div style="padding-left:18px;font-size:0.8rem;color:#666">
+                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChCamPersp" checked onchange="evalConfigChanged()"> Perspective</label></div>
+                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChCamAffine" checked onchange="evalConfigChanged()"> Affine</label></div>
+                    <div><label><input type="checkbox" id="evalChCamRot" checked onchange="evalConfigChanged()"> Rotation</label></div>
+                  </div>
+                </div>
+                <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;flex:1;min-width:200px">
+                  <label style="font-weight:600;font-size:0.82rem"><input type="checkbox" id="evalChLightEnabled" checked onchange="evalConfigChanged()"> Light & Quality</label>
+                  <div style="font-size:0.72rem;color:#999;margin:2px 0 4px 18px">Lighting and camera quality variations</div>
+                  <div style="padding-left:18px;font-size:0.8rem;color:#666">
+                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightBright" checked onchange="evalConfigChanged()"> Brightness</label></div>
+                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightContrast" checked onchange="evalConfigChanged()"> Contrast</label></div>
+                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightSat" checked onchange="evalConfigChanged()"> Saturation</label></div>
+                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightJitter" checked onchange="evalConfigChanged()"> Color Jitter</label></div>
+                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightShadow" onchange="evalConfigChanged()"> Shadow</label></div>
+                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightNoise" onchange="evalConfigChanged()"> Noise</label></div>
+                    <div><label><input type="checkbox" id="evalChLightBlur" onchange="evalConfigChanged()"> Blur</label></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           <!-- Reset Position -->
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
@@ -6675,6 +6717,25 @@ async function evalLoadConfig() {
       if (c.cam_count != null) document.getElementById('evalCamCount').value = c.cam_count;
       if (c.chunk_size != null) document.getElementById('evalChunkSize').value = c.chunk_size;
       if (c.n_action_steps != null) document.getElementById('evalNActionSteps').value = c.n_action_steps;
+      if (c.challenge_env) {
+        const ce = c.challenge_env;
+        document.getElementById('evalChallengeEnabled').checked = !!ce.enabled;
+        if (ce.intensity != null) document.getElementById('evalChallengeIntensity').value = ce.intensity;
+        if (ce.camera) {
+          if (ce.camera.perspective != null) document.getElementById('evalChCamPersp').checked = ce.camera.perspective;
+          if (ce.camera.affine != null) document.getElementById('evalChCamAffine').checked = ce.camera.affine;
+          if (ce.camera.rotation != null) document.getElementById('evalChCamRot').checked = ce.camera.rotation;
+        }
+        if (ce.light) {
+          if (ce.light.brightness != null) document.getElementById('evalChLightBright').checked = ce.light.brightness;
+          if (ce.light.contrast != null) document.getElementById('evalChLightContrast').checked = ce.light.contrast;
+          if (ce.light.saturation != null) document.getElementById('evalChLightSat').checked = ce.light.saturation;
+          if (ce.light.color_jitter != null) document.getElementById('evalChLightJitter').checked = ce.light.color_jitter;
+          if (ce.light.shadow != null) document.getElementById('evalChLightShadow').checked = ce.light.shadow;
+          if (ce.light.noise != null) document.getElementById('evalChLightNoise').checked = ce.light.noise;
+          if (ce.light.blur != null) document.getElementById('evalChLightBlur').checked = ce.light.blur;
+        }
+      }
     } else {
       document.getElementById('evalTask').value = cfg.default_instruction || '';
     }
@@ -6696,6 +6757,24 @@ function _evalGetCurrentConfig() {
     record_video: document.getElementById('evalRecordVideo').checked,
     chunk_size: parseInt(document.getElementById('evalChunkSize').value) || null,
     n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || null,
+    challenge_env: {
+      enabled: document.getElementById('evalChallengeEnabled').checked,
+      intensity: parseInt(document.getElementById('evalChallengeIntensity').value) || 3,
+      camera: {
+        perspective: document.getElementById('evalChCamPersp').checked,
+        affine: document.getElementById('evalChCamAffine').checked,
+        rotation: document.getElementById('evalChCamRot').checked,
+      },
+      light: {
+        brightness: document.getElementById('evalChLightBright').checked,
+        contrast: document.getElementById('evalChLightContrast').checked,
+        saturation: document.getElementById('evalChLightSat').checked,
+        color_jitter: document.getElementById('evalChLightJitter').checked,
+        shadow: document.getElementById('evalChLightShadow').checked,
+        noise: document.getElementById('evalChLightNoise').checked,
+        blur: document.getElementById('evalChLightBlur').checked,
+      },
+    },
   };
 }
 
@@ -6716,6 +6795,7 @@ function evalConfigChanged() {
       height: config.height,
       chunk_size: config.chunk_size,
       n_action_steps: config.n_action_steps,
+      challenge_env: config.challenge_env,
     };
   }
 
@@ -7224,7 +7304,7 @@ function _evalCleanupTimers() {
 }
 
 function _evalBuildBody() {
-  return {
+  const body = {
     model_id: evalSelectedModel.id,
     model_name: evalSelectedModel.name,
     task: document.getElementById('evalTask').value,
@@ -7236,6 +7316,29 @@ function _evalBuildBody() {
     chunk_size: parseInt(document.getElementById('evalChunkSize').value) || 0,
     n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || 0,
   };
+  if (document.getElementById('evalChallengeEnabled').checked) {
+    const camEnabled = document.getElementById('evalChCamEnabled').checked;
+    const lightEnabled = document.getElementById('evalChLightEnabled').checked;
+    body.challenge_env = {
+      enabled: true,
+      intensity: parseInt(document.getElementById('evalChallengeIntensity').value) || 3,
+      camera: camEnabled ? {
+        perspective: document.getElementById('evalChCamPersp').checked,
+        affine: document.getElementById('evalChCamAffine').checked,
+        rotation: document.getElementById('evalChCamRot').checked,
+      } : {},
+      light: lightEnabled ? {
+        brightness: document.getElementById('evalChLightBright').checked,
+        contrast: document.getElementById('evalChLightContrast').checked,
+        saturation: document.getElementById('evalChLightSat').checked,
+        color_jitter: document.getElementById('evalChLightJitter').checked,
+        shadow: document.getElementById('evalChLightShadow').checked,
+        noise: document.getElementById('evalChLightNoise').checked,
+        blur: document.getElementById('evalChLightBlur').checked,
+      } : {},
+    };
+  }
+  return body;
 }
 
 async function _evalStopProcess() {
@@ -7300,10 +7403,12 @@ async function evalStartEpisode() {
   cdEl.style.display = 'none';
   let modelReused = false;
   try {
+    const startBody = _evalBuildBody();
+    startBody.episode = (evalSession.completed || 0) + 1;
     const r = await fetch('/api/eval/start', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(_evalBuildBody()),
+      body: JSON.stringify(startBody),
     });
     const d = await r.json();
     if (!d.ok) {
@@ -7314,6 +7419,9 @@ async function evalStartEpisode() {
       return;
     }
     modelReused = !!d.reused_model;
+    if (d.augment_params) {
+      evalEpAugData = { params: d.augment_params, seed: d.augment_seed };
+    }
   } catch(e) {
     st.textContent = 'Error: ' + e.message;
     document.getElementById('evalRunBtn').disabled = false;
@@ -7325,9 +7433,10 @@ async function evalStartEpisode() {
   const initStart = Date.now();
 
   // 2) Poll log — wait for robot ready, then start countdown
+  const chTag = evalEpAugData ? ' <span style="color:#6a1b9a;font-size:0.75rem">[CH]</span>' : '';
   st.innerHTML = modelReused
-    ? '<span style="color:#1a73e8">Model already loaded — starting episode...</span>'
-    : '<span style="color:#1a73e8">Model ready — starting episode...</span>';
+    ? `<span style="color:#1a73e8">Model already loaded — starting episode...${chTag}</span>`
+    : `<span style="color:#1a73e8">Model ready — starting episode...${chTag}</span>`;
   cdEl.style.display = '';
   cdEl.textContent = 'init...';
 
@@ -7403,6 +7512,7 @@ async function evalStopEpisode() {
 
 async function evalRecordResult(result) {
   if (!evalSession) return;
+  const chEnabled = document.getElementById('evalChallengeEnabled').checked;
   const epResult = {
     run: evalSession.completed + 1,
     result: result,
@@ -7416,10 +7526,12 @@ async function evalRecordResult(result) {
       height: parseInt(document.getElementById('evalHeight').value) || 240,
       chunk_size: parseInt(document.getElementById('evalChunkSize').value) || null,
       n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || null,
+      challenge_env: chEnabled ? { enabled: true, intensity: parseInt(document.getElementById('evalChallengeIntensity').value) || 3 } : null,
     },
   };
   if (evalEpAugData) {
     epResult.aug_params = evalEpAugData.params;
+    epResult.aug_seed = evalEpAugData.seed;
     // Store preview image references (base64 per camera)
     epResult.aug_preview = (evalEpAugData.cameras || []).map(c => ({
       name: c.name,
@@ -7500,23 +7612,54 @@ function evalRenderResults() {
           ['Chunk', c.chunk_size || 'default'],
           ['N Steps', c.n_action_steps || 'default'],
         ].filter(([,v]) => v !== '-');
+        if (c.challenge_env && c.challenge_env.enabled) {
+          entries.push(['Challenge', `I=${c.challenge_env.intensity||3}`]);
+        }
         configHtml = `<div style="font-size:0.68rem;color:#888;margin-bottom:6px">${entries.map(([k,v]) => `<span style="margin-right:10px"><strong>${k}:</strong> ${v}</span>`).join('')}</div>`;
       }
       let paramHtml = '';
       if (r.aug_params) {
         const p = r.aug_params;
-        const paramKeys = [
-          {k:'rotation',u:'°'},{k:'translate_x',u:'%'},{k:'translate_y',u:'%'},
-          {k:'scale',u:''},{k:'shear',u:''},{k:'brightness',u:''},{k:'contrast',u:''},
-          {k:'saturation',u:''},{k:'noise',u:''},{k:'blur',u:''}
-        ];
-        paramHtml = `<table style="font-size:0.68rem;border-collapse:collapse;width:100%;margin-bottom:8px">
-          <tr>${paramKeys.map(({k}) => `<th style="padding:2px 4px;color:#888;font-weight:600;text-align:center;border-bottom:1px solid #eee">${k.replace('_',' ')}</th>`).join('')}</tr>
-          <tr>${paramKeys.map(({k,u}) => {
-            const v = p[k]; const s = typeof v==='number'?(Number.isInteger(v)?v:v.toFixed(2)):v;
-            return `<td style="padding:2px 4px;text-align:center;color:#333">${s}${u}</td>`;
-          }).join('')}</tr>
-        </table>`;
+        // Support both flat (legacy) and nested {camera, light} format
+        if (p.camera || p.light) {
+          const parts = [];
+          if (p.camera) {
+            const cam = p.camera;
+            const camParts = [];
+            if (cam.persp) camParts.push('Perspective');
+            if ('tx' in cam) camParts.push(`Affine(tx:${(cam.tx*100).toFixed(1)}% ty:${((cam.ty||0)*100).toFixed(1)}% scale:${(cam.scale||1).toFixed(2)} shear:${(cam.shear||0).toFixed(3)})`);
+            if ('angle' in cam) camParts.push(`Rot(${cam.angle.toFixed(1)}°)`);
+            if (camParts.length) parts.push(`<span style="color:#6a1b9a;font-weight:600">Camera:</span> ${camParts.join(', ')}`);
+          }
+          if (p.light) {
+            const lt = p.light;
+            const ltParts = [];
+            if ('brightness' in lt) ltParts.push(`Bright:${lt.brightness.toFixed(2)}`);
+            if ('contrast' in lt) ltParts.push(`Contrast:${lt.contrast.toFixed(2)}`);
+            if ('saturation' in lt) ltParts.push(`Sat:${lt.saturation.toFixed(2)}`);
+            if ('hue' in lt) ltParts.push(`Hue:${lt.hue}`);
+            if ('shadow_a' in lt) ltParts.push(`Shadow:${lt.shadow_dir} ${lt.shadow_a.toFixed(2)}`);
+            if ('noise_s' in lt) ltParts.push(`Noise:${lt.noise_s.toFixed(1)}`);
+            if ('blur_k' in lt) ltParts.push(`Blur:${lt.blur_k}/${lt.blur_s.toFixed(1)}`);
+            if (ltParts.length) parts.push(`<span style="color:#e65100;font-weight:600">Light:</span> ${ltParts.join(', ')}`);
+          }
+          const seedInfo = r.aug_seed != null ? `<span style="color:#888;font-size:0.68rem;float:right">seed: ${r.aug_seed}</span>` : '';
+          paramHtml = `<div style="font-size:0.72rem;color:#555;background:#f5f0fa;border:1px solid #e0d0f0;border-radius:6px;padding:6px 10px;margin-bottom:8px;line-height:1.8">${seedInfo}${parts.join('<br>')}</div>`;
+        } else {
+          // Legacy flat format
+          const paramKeys = [
+            {k:'rotation',u:'°'},{k:'translate_x',u:'%'},{k:'translate_y',u:'%'},
+            {k:'scale',u:''},{k:'shear',u:''},{k:'brightness',u:''},{k:'contrast',u:''},
+            {k:'saturation',u:''},{k:'noise',u:''},{k:'blur',u:''}
+          ];
+          paramHtml = `<table style="font-size:0.68rem;border-collapse:collapse;width:100%;margin-bottom:8px">
+            <tr>${paramKeys.map(({k}) => `<th style="padding:2px 4px;color:#888;font-weight:600;text-align:center;border-bottom:1px solid #eee">${k.replace('_',' ')}</th>`).join('')}</tr>
+            <tr>${paramKeys.map(({k,u}) => {
+              const v = p[k]; const s = typeof v==='number'?(Number.isInteger(v)?v:v.toFixed(2)):v;
+              return `<td style="padding:2px 4px;text-align:center;color:#333">${s}${u}</td>`;
+            }).join('')}</tr>
+          </table>`;
+        }
       }
       let imgHtml = '';
       const previews = r.aug_preview || r.camera_preview || [];
@@ -7555,6 +7698,7 @@ function evalRenderResults() {
         <span style="font-size:0.8rem;font-weight:600;color:#444;width:46px;flex-shrink:0">#${r.run}</span>
         <span style="font-size:0.7rem;color:${color};font-weight:500;flex-shrink:0">${r.result}</span>
         ${r.video_filename?'<span style="font-size:0.7rem;color:#ff9800;flex-shrink:0" title="Video recorded">&#9658;</span>':''}
+        ${r.aug_params&&(r.aug_params.camera||r.aug_params.light)?'<span style="font-size:0.62rem;color:#6a1b9a;background:#f3e5f5;border-radius:3px;padding:1px 4px;flex-shrink:0" title="Challenge Environment">CH</span>':''}
         <span style="flex:1"></span>
         ${hasDetail?`<span style="font-size:0.65rem;color:#aaa;flex-shrink:0" id="evalDetailBtn_${i}">&#9660; detail</span>`:''}
         <span style="font-size:0.7rem;color:#aaa;flex-shrink:0">${time}</span>

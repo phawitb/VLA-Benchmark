@@ -102,9 +102,6 @@ def load_local_models(root: Path, configured_cameras: set[str]) -> list[dict]:
         if record["policy_type"] not in SUPPORTED_POLICY_TYPES:
             record["selectable"] = False
             record["unavailable_reason"] = f"Unsupported policy type: {record['policy_type']}"
-        elif not record["tasks"]:
-            record["selectable"] = False
-            record["unavailable_reason"] = "Training instructions unavailable"
         elif missing:
             record["selectable"] = False
             record["unavailable_reason"] = f"Missing configured cameras: {', '.join(missing)}"
@@ -185,4 +182,11 @@ def get_model_record(records: list[dict], model_id: str) -> dict | None:
     exact = next((record for record in records if record.get("id") == model_id), None)
     if exact is not None:
         return exact
-    return next((record for record in records if record.get("repo_id") == model_id), None)
+    by_repo = next((record for record in records if record.get("repo_id") == model_id), None)
+    if by_repo is not None:
+        return by_repo
+    # Try matching by short name (e.g., "user/model_name" → "model_name")
+    short = model_id.rsplit("/", 1)[-1] if "/" in model_id else None
+    if short:
+        return next((record for record in records if record.get("id") == short), None)
+    return None

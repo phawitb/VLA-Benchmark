@@ -57,11 +57,12 @@ def normalize_worker_command(value: str) -> dict | None:
 
 
 def reset_policy_task_state(policy, language_cache: dict) -> None:
-    queue = policy._queues.get("action")
-    if hasattr(queue, "clear"):
-        queue.clear()
-    else:
-        policy._queues["action"] = []
+    if hasattr(policy, "_queues"):
+        queue = policy._queues.get("action")
+        if hasattr(queue, "clear"):
+            queue.clear()
+        else:
+            policy._queues["action"] = []
     language_cache.update(tokens=None, mask=None, embeddings=None)
 
 
@@ -186,6 +187,66 @@ def apply_run_task_command(args, policy, language_cache: dict, command: dict) ->
     args.max_steps = max(1, int(command.get("max_steps", 1)))
     args.verification_image = str(command.get("verification_image", ""))
     args.verification_timeout = float(command.get("verification_timeout", 120.0))
+    # Store augmentation params for challenge environment
+    args._augment = command.get("augment") or None
+
+
+def _aug_frame(frame, cam_p, light_p, cv2, np):
+    """Apply camera shift and lighting augmentation to a BGR frame."""
+    h, w = frame.shape[:2]
+    f = frame
+    if cam_p:
+        if "persp" in cam_p:
+            persp = cam_p["persp"]
+            if not isinstance(persp, np.ndarray):
+                persp = np.array(persp)
+            pts1 = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
+            pts2 = (pts1 + persp * [w, h]).astype(np.float32)
+            M = cv2.getPerspectiveTransform(pts1, pts2)
+            f = cv2.warpPerspective(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+        if "tx" in cam_p:
+            M = np.float32([[cam_p.get("scale", 1), cam_p.get("shear", 0), cam_p["tx"] * w],
+                            [0, cam_p.get("scale", 1), cam_p.get("ty", 0) * h]])
+            f = cv2.warpAffine(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+        if "angle" in cam_p:
+            M = cv2.getRotationMatrix2D((w / 2, h / 2), cam_p["angle"], 1.0)
+            f = cv2.warpAffine(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+    if light_p:
+        ff = f.astype(np.float32)
+        if "brightness" in light_p:
+            ff *= light_p["brightness"]
+        if "contrast" in light_p:
+            mean = ff.mean(axis=(0, 1), keepdims=True)
+            ff = (ff - mean) * light_p["contrast"] + mean
+        ff = np.clip(ff, 0, 255).astype(np.uint8)
+        if "saturation" in light_p:
+            hsv = cv2.cvtColor(ff, cv2.COLOR_BGR2HSV).astype(np.float32)
+            hsv[:, :, 1] *= light_p["saturation"]
+            ff = cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2BGR)
+        if "hue" in light_p:
+            hsv = cv2.cvtColor(ff, cv2.COLOR_BGR2HSV).astype(np.float32)
+            hsv[:, :, 0] = (hsv[:, :, 0] + light_p["hue"]) % 180
+            hsv[:, :, 1] = np.clip(hsv[:, :, 1] + light_p["sat_off"], 0, 255)
+            hsv[:, :, 2] = np.clip(hsv[:, :, 2] + light_p["val_off"], 0, 255)
+            ff = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+        if "shadow_a" in light_p:
+            hh, ww = ff.shape[:2]
+            a = light_p["shadow_a"]
+            d = light_p["shadow_dir"]
+            if d in ("left", "right"):
+                g = np.linspace(1 - a, 1, ww) if d == "left" else np.linspace(1, 1 - a, ww)
+                shadow = np.tile(g, (hh, 1))
+            else:
+                g = np.linspace(1 - a, 1, hh) if d == "top" else np.linspace(1, 1 - a, hh)
+                shadow = np.tile(g.reshape(-1, 1), (1, ww))
+            ff = (ff.astype(np.float32) * shadow[:, :, np.newaxis]).clip(0, 255).astype(np.uint8)
+        if "noise_s" in light_p:
+            noise = np.random.normal(0, light_p["noise_s"], ff.shape)
+            ff = np.clip(ff.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+        if "blur_k" in light_p:
+            ff = cv2.GaussianBlur(ff, (light_p["blur_k"], light_p["blur_k"]), light_p["blur_s"])
+        f = ff
+    return f
 
 
 def parse_args():
@@ -241,6 +302,7 @@ def main():
     cv2, torch = prepare_runtime()
 
     args = parse_args()
+    args._augment = None  # challenge environment augmentation params
 
     if args.worker_protocol_test:
         return run_worker_protocol_test(args.model_id)
@@ -453,6 +515,7 @@ def main():
         print(f"[infer_python] Language caching not supported for policy type '{policy_type}', ignoring", flush=True)
 
     # --- Inference loop ---
+    import numpy as np
     from lerobot.policies.utils import build_inference_frame, make_robot_action
 
     period = 1.0 / args.fps
@@ -548,12 +611,18 @@ def main():
                 frame = cv2.resize(frame, (vw, vh))
             else:
                 frame = np.zeros((vh, vw, 3), dtype=np.uint8)
+            # Add "CH" badge if challenge environment augmentation is active
+            if args._augment:
+                cv2.rectangle(frame, (2, 2), (32, 18), (128, 0, 128), -1)
+                cv2.putText(frame, "CH", (4, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
             frames.append(frame)
         if frames:
             writer.write(np.hstack(frames))
             video_rec_meta["frame_count"] = video_rec_meta.get("frame_count", 0) + 1
 
     print(f"[infer_python] Starting inference loop at {args.fps} FPS", flush=True)
+    if args._augment:
+        print(f"[infer_python] Challenge environment: {json.dumps(args._augment, default=str)}", flush=True)
     print("[infer_python] Press Ctrl+C to stop", flush=True)
 
     try:
@@ -562,6 +631,37 @@ def main():
 
             # Get observation from robot
             obs = robot.get_observation()
+
+            # Apply challenge environment augmentation to camera images
+            if args._augment:
+                _aug_cam = args._augment.get("camera")
+                _aug_lit = args._augment.get("light")
+                _aug_applied = False
+                for _cam_name in cameras_dict:
+                    for _cam_key in (_cam_name, f"observation.images.{_cam_name}"):
+                        if _cam_key not in obs or obs[_cam_key] is None:
+                            continue
+                        _img = obs[_cam_key]
+                        if hasattr(_img, "detach"):
+                            _img = _img.detach().cpu().numpy()
+                        _img = np.asarray(_img)
+                        if _img.ndim == 3 and _img.shape[0] in (3, 4) and _img.shape[-1] not in (3, 4):
+                            _img = np.moveaxis(_img, 0, -1)
+                        if _img.ndim != 3 or _img.shape[-1] not in (3, 4):
+                            continue
+                        if _img.dtype != np.uint8:
+                            _scale = 255.0 if _img.size and float(_img.max()) <= 1.0 else 1.0
+                            _img = np.clip(_img * _scale, 0, 255).astype(np.uint8)
+                        _img = cv2.cvtColor(_img, cv2.COLOR_RGB2BGR)
+                        _img = _aug_frame(_img, _aug_cam, _aug_lit, cv2, np)
+                        _img = cv2.cvtColor(_img, cv2.COLOR_BGR2RGB)
+                        obs[_cam_key] = _img
+                        _aug_applied = True
+                if step == 0 and _aug_applied:
+                    print(f"[infer_python] Challenge env augmentation active: camera={list(_aug_cam.keys()) if _aug_cam else None} light={list(_aug_lit.keys()) if _aug_lit else None}", flush=True)
+                elif step == 0 and not _aug_applied:
+                    print(f"[infer_python] WARNING: augment params set but no camera images found in obs keys: {list(obs.keys())}", flush=True)
+
             t_obs = time.time()
 
             # Video recording (check signal every N steps)
@@ -596,7 +696,7 @@ def main():
                         obs_processed[LANG_MASK_KEY] = language_cache["mask"]
 
             # Predict action
-            queue_empty = len(policy._queues.get("action", [])) == 0
+            queue_empty = len(getattr(policy, "_queues", {}).get("action", [])) == 0
             with torch.inference_mode():
                 action = policy.select_action(obs_processed)
             t_action = time.time()
@@ -683,7 +783,15 @@ def main():
                         apply_run_task_command(args, policy, language_cache, worker_command)
                         step = 0
                         cycle_start = 0
-                        print(f"[infer_python] Fast restart: task='{args.task}'", flush=True)
+                        aug_info = ""
+                        if args._augment:
+                            aug_keys = []
+                            if args._augment.get("camera"):
+                                aug_keys.append("camera:" + ",".join(args._augment["camera"].keys()))
+                            if args._augment.get("light"):
+                                aug_keys.append("light:" + ",".join(args._augment["light"].keys()))
+                            aug_info = f" augment=[{' '.join(aug_keys)}]"
+                        print(f"[infer_python] Fast restart: task='{args.task}'{aug_info}", flush=True)
                         emit_worker_event("HARDWARE_READY", {"task": args.task})
                     except Exception as exc:
                         emit_worker_event("WORKER_ERROR", {"code": "RUN_TASK_FAILED", "error": str(exc)})
