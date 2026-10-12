@@ -1416,12 +1416,12 @@ Effective: ~370ms / 50 = 7.4ms per action (amortized)</pre>
 
         <!-- Running job live log -->
         <div class="config-card" id="trainLiveCard" style="margin-bottom:14px;display:none">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;overflow:hidden">
             <div style="width:8px;height:8px;border-radius:50%;background:#e8710a;animation:pulse 1.5s infinite;flex-shrink:0"></div>
-            <h3 style="margin:0;font-size:0.9rem" id="trainLiveTitle">Running</h3>
-            <a id="trainLiveWbLink2" href="#" target="_blank" style="display:none;color:#e8710a;font-size:0.72rem;font-weight:600;text-decoration:none">W&B ↗</a>
+            <h3 style="margin:0;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0" id="trainLiveTitle">Running</h3>
+            <a id="trainLiveWbLink2" href="#" target="_blank" style="display:none;color:#e8710a;font-size:0.72rem;font-weight:600;text-decoration:none;flex-shrink:0">W&B ↗</a>
             <div style="flex:1"></div>
-            <button class="btn btn-sm btn-danger" onclick="trainStopLiveJob()" style="font-size:0.68rem;padding:2px 8px">Stop</button>
+            <button class="btn btn-sm btn-danger" onclick="trainStopLiveJob()" style="font-size:0.68rem;padding:2px 8px;flex-shrink:0">Stop</button>
           </div>
           <div id="trainLiveProgress" style="display:none;margin-bottom:8px">
             <div style="height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden">
@@ -3922,7 +3922,7 @@ async function vizShowRandomSubset() {
     const d = await r.json();
     if (!d.ok) { alert('Error loading dataset'); return; }
     const totalEps = d.info.total_episodes || 0;
-    const defaultName = `${vizCurrentDataset}_rand`;
+    const defaultName = `${vizCurrentDataset}_N`;
     const html = `
       <div style="text-align:left;font-size:0.9rem">
         <p>Source: <b>${vizCurrentDataset}</b> (${totalEps} episodes)</p>
@@ -3953,10 +3953,10 @@ async function vizShowRandomSubset() {
     const epsInput = document.getElementById('_randNumEps');
     const nameInput = document.getElementById('_randNewName');
     epsInput.addEventListener('input', () => {
-      nameInput.value = `${vizCurrentDataset}_rand${epsInput.value}`;
+      nameInput.value = `${vizCurrentDataset}_N${epsInput.value}`;
     });
     // Update name with initial value
-    nameInput.value = `${vizCurrentDataset}_rand${epsInput.value}`;
+    nameInput.value = `${vizCurrentDataset}_N${epsInput.value}`;
     document.getElementById('_randCancel').onclick = () => modal.remove();
     document.getElementById('_randOk').onclick = async () => {
       const numEps = parseInt(epsInput.value);
@@ -4837,10 +4837,10 @@ async function trainCheckServer() {
     if (failed.length) parts.push(`<span style="color:#d93025">${failed.length} failed</span>`);
     st.innerHTML = parts.join(' · ');
 
-    // Update queue card
+    // Update queue card (no longer needed — jobs self-queue on server)
     _renderQueue(queued);
-    // Update live running job card
-    _updateLiveJob(running);
+    // Update live job card (running or queued — both are active on server)
+    _updateLiveJob([...running, ...queued]);
     document.getElementById('trainKillAllCard').style.display = (running.length || queued.length) ? '' : 'none';
   } catch(e) {
     st.innerHTML = '<span style="color:#d93025">Error: ' + e.message + '</span>';
@@ -4889,6 +4889,17 @@ async function _refreshLiveLog() {
     ]);
     const d = await r.json();
     const sd = await sr.json();
+
+    // Check if job completed or failed — hide live card and refresh
+    if (sd.status && !['running','downloading','queued'].includes(sd.status)) {
+      if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null; }
+      _liveJobId = null;
+      document.getElementById('trainLiveCard').style.display = 'none';
+      trainCheckServer();
+      trainLoadHistory();
+      return;
+    }
+
     const logText = Array.isArray(d.lines) ? d.lines.join('\n') : (d.logs || d.log || '');
     const logEl = document.getElementById('trainLiveLog');
     logEl.textContent = logText || '(waiting for logs...)';
@@ -5611,12 +5622,14 @@ async function historyLoadJobDetail(jobId) {
 
     // Buttons
     let actionBtn = '';
+    const isFailed = ['failed','stopped','cancelled'].includes(status);
+    const retrainBtn = isFailed ? `<button class="btn btn-sm" onclick="historyRetrain('${jobId}')" style="font-size:0.72rem;padding:3px 10px;background:#e8710a">Re-train</button>` : '';
     if (isQueued) {
       actionBtn = `<button class="btn btn-sm btn-danger" onclick="historyCancelQueued('${jobId}')" style="font-size:0.72rem;padding:3px 10px">Cancel from Queue</button>`;
     } else if (isActive) {
       actionBtn = `<button class="btn btn-sm btn-danger" onclick="historyStopJob('${jobId}')" style="font-size:0.72rem;padding:3px 10px">Stop</button>`;
     } else {
-      actionBtn = `<button class="btn btn-sm btn-danger" onclick="historyDeleteJob('${jobId}')" style="font-size:0.72rem;padding:3px 10px">Delete</button>`;
+      actionBtn = `${retrainBtn}<button class="btn btn-sm btn-danger" onclick="historyDeleteJob('${jobId}')" style="font-size:0.72rem;padding:3px 10px">Delete</button>`;
     }
     const allStatuses = ['running','queued','completed','success','failed','stopped','cancelled'];
     const statusSelectHtml = (!isActive && !isQueued) ? `<select onchange="historyUpdateStatus('${jobId}',this.value)" style="font-size:0.72rem;border:1px solid #ddd;border-radius:4px;padding:2px 6px;color:#555;background:#fff;cursor:pointer">${allStatuses.map(s => `<option value="${s}" ${s===status?'selected':''}>${s.toUpperCase()}</option>`).join('')}</select>` : '';
@@ -5684,6 +5697,28 @@ async function historyDeleteJob(jobId) {
     trainCurrentJobId = null;
     trainLoadHistory();
   } catch(e) {}
+}
+
+async function historyRetrain(jobId) {
+  if (!confirm('Re-submit this training job?')) return;
+  try {
+    const sr = await fetch(`/api/training/jobs/${jobId}/status`);
+    const sd = await sr.json();
+    const config = sd.config || {};
+    if (!Object.keys(config).length) { alert('No config found for this job'); return; }
+    const r = await fetch('/api/training/train', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(config),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      alert(`Job re-submitted: ${d.status === 'queued' ? 'Queued' : 'Started'}`);
+      await trainLoadHistory();
+    } else {
+      alert('Error: ' + (d.error || 'Unknown'));
+    }
+  } catch(e) { alert('Error: ' + e.message); }
 }
 
 function historyToggleAutoRefresh(jobId) {
@@ -8087,7 +8122,7 @@ async function evalResultsRefresh() {
       const data = evalResultsGetData().filter(d => d.manual);
       for (const s of d.sessions) {
         const model = s.name || s.model || '';
-        const match = model.match(/^(act|smolvla|pi05)_(.+?)_rand(\d+)(.*)/i);
+        const match = model.match(/^(act|smolvla|pi05)_(.+?)_(?:rand|N)(\d+)(.*)/i);
         if (!match) continue;
         const policy = match[1].toLowerCase() === 'act' ? 'ACT' : match[1].toLowerCase() === 'smolvla' ? 'SmolVLA' : 'Pi0.5';
         const suffix = (match[4] || '').trim();

@@ -1210,7 +1210,7 @@ async def random_subset_dataset(name: str, request: Request):
         (new_dir / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
         (new_dir / "data" / "chunk-000").mkdir(parents=True)
 
-        for cam in _get_camera_keys(base_info):
+        for cam in _get_camera_keys(src_info):
             vid_dir = new_dir / "videos" / cam / "chunk-000"
             vid_dir.mkdir(parents=True)
             src_vids = []
@@ -1448,10 +1448,14 @@ if info_path:
         info = json.load(f)
     version = info.get("codebase_version", "v2.1")
     try:
+        try:
+            api.delete_tag(repo_id, tag=version, repo_type="dataset")
+        except Exception:
+            pass
         api.create_tag(repo_id, tag=version, repo_type="dataset")
-        print(f"TAG {version}", flush=True)
+        print(f"TAG {{version}}", flush=True)
     except Exception as e:
-        print(f"TAG_WARN: {e}", flush=True)
+        print(f"TAG_WARN: {{e}}", flush=True)
 print("DONE", flush=True)
 """
         lerobot_python = "/opt/miniconda3/envs/lerobot/bin/python"
@@ -1535,6 +1539,10 @@ async def hf_dataset_tag(request: Request):
             info_path = api.hf_hub_download(repo_id, "meta/info.json", repo_type="dataset")
             info = json.loads(Path(info_path).read_text())
             version = info.get("codebase_version", "v2.1")
+        except Exception:
+            pass
+        try:
+            api.delete_tag(repo_id, tag=version, repo_type="dataset")
         except Exception:
             pass
         api.create_tag(repo_id, tag=version, repo_type="dataset")
@@ -2274,7 +2282,9 @@ async def remove_idle_dataset(name: str, request: Request):
         cols = {k: [r.get(k) for r in combined_ep] for k in combined_ep[0]}
         pq.write_table(pa.table(cols), str(new_dir / "meta" / "episodes" / "chunk-000" / "file-000.parquet"))
         if all_tasks:
-            pq.write_table(pa.table({"task": all_tasks}), str(new_dir / "meta" / "tasks.parquet"))
+            import pandas as pd
+            tasks_df = pd.DataFrame({"task_index": list(range(len(all_tasks)))}, index=pd.Index(all_tasks, name="task"))
+            tasks_df.to_parquet(str(new_dir / "meta" / "tasks.parquet"))
 
         new_info = dict(src_info)
         new_info["total_episodes"] = new_ep_idx
@@ -2794,7 +2804,9 @@ def _run_augmentation(src_name, new_name, target_episodes, techniques, intensity
         cols = {k: [r.get(k) for r in combined_ep] for k in combined_ep[0]}
         pq.write_table(pa.table(cols), str(new_dir / "meta" / "episodes" / "chunk-000" / "file-000.parquet"))
         if all_new_tasks:
-            pq.write_table(pa.table({"task": all_new_tasks}), str(new_dir / "meta" / "tasks.parquet"))
+            import pandas as pd
+            tasks_df = pd.DataFrame({"task_index": list(range(len(all_new_tasks)))}, index=pd.Index(all_new_tasks, name="task"))
+            tasks_df.to_parquet(str(new_dir / "meta" / "tasks.parquet"))
 
         new_info = dict(info)
         new_info["total_episodes"] = new_ep_idx
@@ -2807,29 +2819,9 @@ def _run_augmentation(src_name, new_name, target_episodes, techniques, intensity
                 feat["info"]["video.codec"] = "h264"
         (new_dir / "meta" / "info.json").write_text(json.dumps(new_info, indent=4))
 
-        # Compute stats
+        # Compute stats (including camera keys)
         state["status"] = "Computing stats..."
-        stat_keys = ["action", "observation.state", "timestamp", "frame_index",
-                     "episode_index", "index", "task_index"]
-        stats = {}
-        for key in stat_keys:
-            vals = []
-            for row in combined_data:
-                v = row.get(key)
-                if v is None:
-                    continue
-                vals.append(v if isinstance(v, (list, tuple)) else [v])
-            if not vals:
-                continue
-            arr = np.array(vals, dtype=np.float64)
-            stats[key] = {
-                "min": np.min(arr, axis=0).tolist(),
-                "max": np.max(arr, axis=0).tolist(),
-                "mean": np.mean(arr, axis=0).tolist(),
-                "std": np.std(arr, axis=0).tolist(),
-                "count": [len(arr)],
-            }
-        (new_dir / "meta" / "stats.json").write_text(json.dumps(stats, indent=2))
+        _compute_stats_json(combined_data, new_dir)
 
         # Save augmentation config to separate folder (keep dataset as pure LeRobot format)
         aug_meta = {
@@ -3526,126 +3518,270 @@ def _build_train_command(config: dict, gpu: dict) -> str:
     return "lerobot-train " + " ".join(args)
 
 
+def _get_worker_script(gpu: dict) -> str:
+    """Generate the persistent worker bash script that processes the queue."""
+    conda_init = _conda_init_cmd()
+    cfg_all = load_config()
+    hf_token = cfg_all.get("hf_token", "")
+    hf_export = f"export HF_TOKEN={shlex.quote(hf_token)}" if hf_token else ""
+    wandb_export = f"export WANDB_API_KEY={shlex.quote(gpu['wandb_key'])}" if gpu.get("wandb_key") else ""
+    work_dir = gpu["work_dir"]
+    vram_threshold = 8000
+
+    return f"""#!/bin/bash
+{conda_init}
+conda activate {gpu['conda_env']}
+{hf_export}
+{wandb_export}
+cd {work_dir}
+
+QUEUE_FILE="{work_dir}/train_queue.json"
+VRAM_THRESHOLD={vram_threshold}
+
+echo "=== Train worker started ==="
+
+while true; do
+    # Read first pending job from queue
+    JOB_JSON=$(python3 -c "
+import json, fcntl, sys, os
+qf = '$QUEUE_FILE'
+if not os.path.exists(qf):
+    sys.exit(0)
+with open(qf) as f:
+    fcntl.flock(f, fcntl.LOCK_SH)
+    q = json.load(f)
+for j in q.get('jobs', []):
+    if j['status'] == 'pending':
+        print(json.dumps(j))
+        break
+" 2>/dev/null)
+
+    if [ -z "$JOB_JSON" ]; then
+        sleep 10
+        continue
+    fi
+
+    # Extract fields
+    JOB_ID=$(echo "$JOB_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['job_id'])")
+    TRAIN_CMD=$(echo "$JOB_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['train_cmd'])")
+    LOG_FILE=$(echo "$JOB_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['log_file'])")
+    DS_NAME=$(echo "$JOB_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ds_name',''))")
+    OUTPUT_DIR=$(echo "$JOB_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('output_dir',''))")
+
+    echo "Worker: Found pending job $JOB_ID"
+
+    # Wait for VRAM to be free
+    echo "=== Waiting for GPU ===" > "$LOG_FILE"
+    while true; do
+        VRAM_USED=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
+        VRAM_USED=${{VRAM_USED:-0}}
+        if [ "$VRAM_USED" -lt $VRAM_THRESHOLD ]; then
+            echo "GPU is free (VRAM: ${{VRAM_USED}}MB). Starting training..." >> "$LOG_FILE"
+            break
+        fi
+        echo "Waiting for GPU... (VRAM: ${{VRAM_USED}}MB/${{VRAM_THRESHOLD}}MB threshold)" >> "$LOG_FILE"
+        sleep 30
+    done
+
+    # Mark job as running in queue
+    python3 -c "
+import json, fcntl
+with open('$QUEUE_FILE', 'r+') as f:
+    fcntl.flock(f, fcntl.LOCK_EX)
+    q = json.load(f)
+    for j in q['jobs']:
+        if j['job_id'] == '$JOB_ID':
+            j['status'] = 'running'
+            break
+    f.seek(0); f.truncate()
+    json.dump(q, f, indent=1)
+"
+
+    # Clear HF cache for this dataset
+    if [ -n "$DS_NAME" ]; then
+        echo "Clearing HF cache for $DS_NAME..." >> "$LOG_FILE"
+        find ~/.cache/huggingface -maxdepth 4 -type d -name "*${{DS_NAME}}*" -exec rm -rf '{{}}' + 2>/dev/null || true
+    fi
+
+    # Clean previous output
+    [ -n "$OUTPUT_DIR" ] && rm -rf "$OUTPUT_DIR"
+
+    # Run training
+    echo "=== Starting training ===" >> "$LOG_FILE"
+    eval "$TRAIN_CMD" >> "$LOG_FILE" 2>&1
+    EXIT_CODE=$?
+
+    # Mark completed or failed in queue
+    if [ $EXIT_CODE -eq 0 ]; then
+        FINAL_STATUS="completed"
+    else
+        FINAL_STATUS="failed"
+    fi
+
+    python3 -c "
+import json, fcntl
+with open('$QUEUE_FILE', 'r+') as f:
+    fcntl.flock(f, fcntl.LOCK_EX)
+    q = json.load(f)
+    for j in q['jobs']:
+        if j['job_id'] == '$JOB_ID':
+            j['status'] = '$FINAL_STATUS'
+            j['exit_code'] = $EXIT_CODE
+            break
+    f.seek(0); f.truncate()
+    json.dump(q, f, indent=1)
+"
+    echo "Worker: Job $JOB_ID finished with status $FINAL_STATUS (exit=$EXIT_CODE)"
+done
+"""
+
+
+def _ensure_worker_running(gpu: dict) -> dict:
+    """Ensure the train_worker tmux session is running on the GPU server."""
+    r = _ssh_run_sync("tmux has-session -t train_worker 2>/dev/null && echo ALIVE || echo DEAD", timeout=10)
+    if r["ok"] and "ALIVE" in r.get("stdout", ""):
+        return {"ok": True, "started": False}
+
+    # Write worker script and start it
+    script_path = f"{gpu['work_dir']}/train_worker.sh"
+    script_content = _get_worker_script(gpu)
+    wr = _write_remote_file(script_path, script_content, gpu)
+    if not wr["ok"]:
+        return {"ok": False, "error": f"Failed to write worker script: {wr['error']}"}
+
+    r = _ssh_run_sync(
+        f"chmod +x {script_path} && "
+        f"tmux new-session -d -s train_worker 'bash {script_path}'",
+        timeout=15
+    )
+    if r["ok"]:
+        return {"ok": True, "started": True}
+    return {"ok": False, "error": r.get("error", "Failed to start worker")}
+
+
+def _append_to_queue(job_entry: dict, gpu: dict) -> dict:
+    """Append a job to the remote queue file atomically.
+    Writes job JSON to a temp file first, then uses python to merge it into the queue.
+    """
+    queue_path = f"{gpu['work_dir']}/train_queue.json"
+    tmp_path = f"{gpu['work_dir']}/._job_tmp.json"
+    # Write job entry to temp file (avoids all quoting issues)
+    wr = _write_remote_file(tmp_path, json.dumps(job_entry), gpu)
+    if not wr["ok"]:
+        return wr
+    py_script = (
+        "import json, fcntl, os\n"
+        f"qf = '{queue_path}'\n"
+        f"tf = '{tmp_path}'\n"
+        "if not os.path.exists(qf):\n"
+        "    with open(qf, 'w') as f: json.dump({'jobs': []}, f)\n"
+        "job = json.load(open(tf))\n"
+        "with open(qf, 'r+') as f:\n"
+        "    fcntl.flock(f, fcntl.LOCK_EX)\n"
+        "    q = json.load(f)\n"
+        "    q['jobs'].append(job)\n"
+        "    f.seek(0); f.truncate()\n"
+        "    json.dump(q, f, indent=1)\n"
+        "os.remove(tf)\n"
+        "print('OK')\n"
+    )
+    script_path = f"{gpu['work_dir']}/._queue_append.py"
+    wr2 = _write_remote_file(script_path, py_script, gpu)
+    if not wr2["ok"]:
+        return wr2
+    return _ssh_run_sync(f"python3 {script_path}", timeout=15)
+
+
+def _remove_from_queue(job_id: str, gpu: dict, new_status: str = "cancelled") -> dict:
+    """Mark a job in the remote queue as cancelled/stopped."""
+    queue_path = f"{gpu['work_dir']}/train_queue.json"
+    py_script = (
+        "import json, fcntl, os\n"
+        f"qf = '{queue_path}'\n"
+        "if not os.path.exists(qf): exit(0)\n"
+        "with open(qf, 'r+') as f:\n"
+        "    fcntl.flock(f, fcntl.LOCK_EX)\n"
+        "    q = json.load(f)\n"
+        "    for j in q['jobs']:\n"
+        f"        if j['job_id'] == '{job_id}':\n"
+        f"            j['status'] = '{new_status}'\n"
+        "            break\n"
+        "    f.seek(0); f.truncate()\n"
+        "    json.dump(q, f, indent=1)\n"
+        "print('OK')\n"
+    )
+    script_path = f"{gpu['work_dir']}/._queue_update.py"
+    wr = _write_remote_file(script_path, py_script, gpu)
+    if not wr["ok"]:
+        return wr
+    return _ssh_run_sync(f"python3 {script_path}", timeout=15)
+
+
+def _read_remote_queue(gpu: dict) -> dict:
+    """Read the remote queue file and return {job_id: status} map."""
+    queue_path = f"{gpu['work_dir']}/train_queue.json"
+    r = _ssh_run_sync(f"cat {queue_path} 2>/dev/null || echo '{{}}'", timeout=10)
+    statuses = {}
+    if r["ok"] and r.get("stdout", "").strip():
+        try:
+            qdata = json.loads(r["stdout"])
+            for j in qdata.get("jobs", []):
+                statuses[j["job_id"]] = j.get("status", "unknown")
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return statuses
+
+
 def _prepare_job(body: dict, gpu: dict) -> dict:
-    """Prepare job metadata and write script to remote server. Returns job info dict."""
+    """Prepare job metadata for the queue-based worker system."""
     policy_type = body.get("policy_type", "act")
     ds_name = body.get("dataset_repo_id", "").split("/")[-1]
     job_name = body.get("job_name", f"{policy_type}_{ds_name}")
     job_id = f"{job_name}_{int(time.time())}"
-    tmux_session = f"train_{job_id}"
     log_file = f"{gpu['work_dir']}/logs/{job_id}.log"
-    script_path = f"{gpu['work_dir']}/logs/{job_id}.sh"
     train_cmd = _build_train_command(body, gpu)
-    conda_init = _conda_init_cmd()
     output_dir = f"{gpu['work_dir']}/outputs/train/{job_name}"
 
-    cfg_all = load_config()
-    hf_token = cfg_all.get("hf_token", "")
-    hf_export = f"export HF_TOKEN={shlex.quote(hf_token)}\n" if hf_token else ""
-    wandb_export = f"export WANDB_API_KEY={shlex.quote(gpu['wandb_key'])}\n" if gpu.get("wandb_key") else ""
-    script_content = (
-        f"#!/bin/bash\n"
-        f"exec > {log_file} 2>&1\n"
-        f"{conda_init}\n"
-        f"conda activate {gpu['conda_env']}\n"
-        f"{hf_export}"
-        f"{wandb_export}"
-        f"cd {gpu['work_dir']}\n"
-        f"rm -rf {output_dir}\n"
-        f"{train_cmd}\n"
-    )
-    write_result = _write_remote_file(script_path, script_content, gpu)
-    if not write_result["ok"]:
-        return {"ok": False, "error": f"Failed to write script: {write_result['error']}"}
-
     return {
-        "ok": True, "job_id": job_id, "job_name": job_name, "tmux_session": tmux_session,
-        "log_file": log_file, "script_path": script_path, "train_cmd": train_cmd, "config": body,
+        "ok": True, "job_id": job_id, "job_name": job_name,
+        "log_file": log_file, "train_cmd": train_cmd, "config": body,
+        "queue_entry": {
+            "job_id": job_id, "status": "pending", "job_name": job_name,
+            "train_cmd": train_cmd, "log_file": log_file,
+            "output_dir": output_dir, "ds_name": ds_name,
+            "added_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        },
     }
 
 
 def _start_job_on_server(job_info: dict) -> dict:
-    """Start a prepared job on the GPU server via tmux."""
-    remote = (
-        f"chmod +x {job_info['script_path']} && "
-        f"tmux new-session -d -s {job_info['tmux_session']} "
-        f"'bash {job_info['script_path']}'"
-    )
-    result = _ssh_run_sync(remote, timeout=15)
-    if result["ok"]:
-        _save_job_local(job_info["job_id"], {
-            "status": "running",
-            "config": job_info["config"],
-            "job_name": job_info["job_name"],
-            "cmd": job_info["train_cmd"],
-            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "log_file": job_info["log_file"],
-            "tmux_session": job_info["tmux_session"],
-            "script_path": job_info["script_path"],
-        })
-        return {"ok": True}
-    return {"ok": False, "error": result.get("error", "SSH failed")}
+    """Add a job to the remote queue and ensure the worker is running."""
+    gpu = _gpu_ssh_config()
 
+    # Ensure log directory exists
+    _ssh_run_sync(f"mkdir -p {gpu['work_dir']}/logs", timeout=10)
 
-def _has_running_training() -> bool:
-    """Check if any training tmux session is running on GPU server."""
-    r = _ssh_run_sync("tmux list-sessions -F '#{session_name}' 2>/dev/null || true", timeout=10)
-    if r["ok"] and r["stdout"].strip():
-        for session in r["stdout"].strip().split("\n"):
-            if session.startswith("train_"):
-                return True
-    return False
-
-
-def _get_next_queued_job() -> dict | None:
-    """Get the oldest queued job."""
-    queued = []
-    for f in sorted(TRAIN_LOG_DIR.glob("*.json")):
-        try:
-            local = json.loads(f.read_text())
-            if local.get("status") == "queued":
-                queued.append(local)
-        except Exception:
-            pass
-    return queued[0] if queued else None
-
-
-def _process_queue():
-    """Check if running job finished, start next queued job."""
-    if _has_running_training():
-        return
-    next_job = _get_next_queued_job()
-    if not next_job:
-        return
-    job_id = next_job["job_id"]
-    job_info = {
-        "job_id": job_id,
-        "job_name": next_job.get("job_name", job_id),
-        "tmux_session": next_job.get("tmux_session", f"train_{job_id}"),
-        "log_file": next_job.get("log_file", ""),
-        "script_path": next_job.get("script_path", ""),
-        "train_cmd": next_job.get("cmd", ""),
-        "config": next_job.get("config", {}),
-    }
-    result = _start_job_on_server(job_info)
+    # Append job to queue
+    result = _append_to_queue(job_info["queue_entry"], gpu)
     if not result["ok"]:
-        _save_job_local(job_id, {"status": "failed"})
+        return {"ok": False, "error": f"Failed to append to queue: {result.get('error')}"}
 
+    # Ensure worker is running
+    wr = _ensure_worker_running(gpu)
+    if not wr["ok"]:
+        return {"ok": False, "error": f"Failed to start worker: {wr.get('error')}"}
 
-# Background queue processor
-_queue_timer = None
-
-def _queue_loop():
-    global _queue_timer
-    try:
-        _process_queue()
-    except Exception:
-        pass
-    _queue_timer = threading.Timer(30, _queue_loop)
-    _queue_timer.daemon = True
-    _queue_timer.start()
-
-_queue_loop()
+    # Save local tracking
+    _save_job_local(job_info["job_id"], {
+        "status": "queued",
+        "config": job_info["config"],
+        "job_name": job_info["job_name"],
+        "cmd": job_info["train_cmd"],
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "log_file": job_info["log_file"],
+        "tmux_session": "train_worker",
+    })
+    return {"ok": True}
 
 
 @app.post("/api/training/train")
@@ -3663,23 +3799,9 @@ async def training_start(request: Request):
     if not job_info["ok"]:
         return {"ok": False, "error": job_info["error"]}
 
-    # Check if another training is running — if so, queue this job
-    if _has_running_training():
-        _save_job_local(job_info["job_id"], {
-            "status": "queued",
-            "config": body,
-            "job_name": job_info["job_name"],
-            "cmd": job_info["train_cmd"],
-            "log_file": job_info["log_file"],
-            "tmux_session": job_info["tmux_session"],
-            "script_path": job_info["script_path"],
-        })
-        return {"ok": True, "job_id": job_info["job_id"], "status": "queued"}
-
-    # No running job — start immediately
     result = _start_job_on_server(job_info)
     if result["ok"]:
-        return {"ok": True, "job_id": job_info["job_id"], "status": "running", "tmux_session": job_info["tmux_session"]}
+        return {"ok": True, "job_id": job_info["job_id"], "status": "queued"}
     return {"ok": False, "error": result.get("error", "SSH failed")}
 
 
@@ -3688,12 +3810,13 @@ async def training_jobs():
     gpu = _gpu_ssh_config()
     ssh_ok = bool(gpu["host"] and gpu["user"])
 
-    # Check which tmux sessions are still alive on remote
-    active_sessions = set()
+    # Check worker status and remote queue
+    worker_alive = False
+    remote_statuses = {}
     if ssh_ok:
-        r = _ssh_run_sync("tmux list-sessions -F '#{session_name}' 2>/dev/null || true", timeout=10)
-        if r["ok"]:
-            active_sessions = set(r["stdout"].strip().split("\n")) if r["stdout"].strip() else set()
+        r = _ssh_run_sync("tmux has-session -t train_worker 2>/dev/null && echo ALIVE || echo DEAD", timeout=10)
+        worker_alive = r["ok"] and "ALIVE" in r.get("stdout", "")
+        remote_statuses = _read_remote_queue(gpu)
 
     merged = {}
     for f in sorted(TRAIN_LOG_DIR.glob("*.json"), reverse=True):
@@ -3702,15 +3825,38 @@ async def training_jobs():
             jid = local.get("job_id", f.stem)
             config = local.get("config") or {}
             status = local.get("status", "unknown")
-            tmux = local.get("tmux_session", "")
 
-            # Update status based on remote tmux session
-            if status in ("running", "downloading") and tmux:
-                if ssh_ok and tmux not in active_sessions:
+            # Update status from server-side logs and remote queue
+            if status in ("queued", "running", "downloading"):
+                log_file = local.get("log_file", "")
+                log_tail = ""
+                if ssh_ok and log_file:
+                    lr = _ssh_run_sync(f"tail -n 30 {log_file} 2>/dev/null || true", timeout=10)
+                    if lr["ok"]:
+                        log_tail = lr["stdout"] or ""
+                if not log_tail:
+                    log_tail = "\n".join(local.get("logs", [])[-30:])
+
+                if "End of training" in log_tail:
                     status = "completed"
                     _save_job_local(jid, {"status": "completed", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
-                    # Trigger queue processing
-                    threading.Thread(target=_process_queue, daemon=True).start()
+                elif "Starting training" in log_tail and status == "queued":
+                    status = "running"
+                    _save_job_local(jid, {"status": "running"})
+                elif ssh_ok and jid in remote_statuses:
+                    rs = remote_statuses[jid]
+                    if rs == "completed":
+                        status = "completed"
+                        _save_job_local(jid, {"status": "completed", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+                    elif rs == "failed":
+                        status = "failed"
+                        _save_job_local(jid, {"status": "failed", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+                    elif rs == "running":
+                        status = "running"
+                        _save_job_local(jid, {"status": "running"})
+                    elif rs in ("pending",) and not worker_alive:
+                        status = "failed"
+                        _save_job_local(jid, {"status": "failed", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
 
             merged[jid] = {
                 "status": status,
@@ -3720,7 +3866,7 @@ async def training_jobs():
                 "dataset_repo_id": config.get("dataset_repo_id") or config.get("repo_id", ""),
                 "last_updated": local.get("last_updated"),
                 "wb_url": local.get("wb_url"),
-                "tmux_session": tmux,
+                "tmux_session": "train_worker",
             }
         except Exception:
             pass
@@ -3734,14 +3880,37 @@ async def training_job_status(job_id: str):
         return {"error": "Job not found"}
     local = json.loads(job_path.read_text())
     status = local.get("status", "unknown")
-    tmux = local.get("tmux_session", "")
 
-    # Check if tmux session is still alive
-    if status in ("running", "downloading") and tmux:
-        r = _ssh_run_sync(f"tmux has-session -t {tmux} 2>/dev/null && echo ALIVE || echo DEAD", timeout=10)
-        if r["ok"] and "DEAD" in r["stdout"]:
+    # Update status from server-side logs and remote queue
+    if status in ("queued", "running", "downloading"):
+        log_file = local.get("log_file", "")
+        log_tail = ""
+        if log_file:
+            lr = _ssh_run_sync(f"tail -n 30 {log_file} 2>/dev/null || true", timeout=10)
+            if lr["ok"]:
+                log_tail = lr["stdout"] or ""
+        if not log_tail:
+            log_tail = "\n".join(local.get("logs", [])[-30:])
+
+        if "End of training" in log_tail:
             status = "completed"
             _save_job_local(job_id, {"status": "completed", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        elif "Starting training" in log_tail and status == "queued":
+            status = "running"
+            _save_job_local(job_id, {"status": "running"})
+        else:
+            gpu = _gpu_ssh_config()
+            remote_statuses = _read_remote_queue(gpu)
+            rs = remote_statuses.get(job_id)
+            if rs == "completed":
+                status = "completed"
+                _save_job_local(job_id, {"status": "completed", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+            elif rs == "failed":
+                status = "failed"
+                _save_job_local(job_id, {"status": "failed", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+            elif rs == "running":
+                status = "running"
+                _save_job_local(job_id, {"status": "running"})
 
     return {
         "job_id": job_id,
@@ -3795,9 +3964,27 @@ async def training_stop_job(job_id: str):
     if not job_path.exists():
         return {"error": "Job not found"}
     local = json.loads(job_path.read_text())
-    tmux = local.get("tmux_session", "")
-    if tmux:
-        _ssh_run_sync(f"tmux kill-session -t {tmux} 2>/dev/null || true", timeout=10)
+    gpu = _gpu_ssh_config()
+    status = local.get("status", "")
+
+    # Check remote queue status
+    remote_statuses = _read_remote_queue(gpu)
+    rs = remote_statuses.get(job_id, "")
+
+    if rs == "running":
+        # Kill worker (stops current training), mark job cancelled, restart worker for remaining jobs
+        _ssh_run_sync("tmux kill-session -t train_worker 2>/dev/null || true", timeout=10)
+        _remove_from_queue(job_id, gpu, "cancelled")
+        _ensure_worker_running(gpu)
+    elif rs == "pending":
+        # Just remove from queue
+        _remove_from_queue(job_id, gpu, "cancelled")
+    else:
+        # Legacy: try killing old-style tmux session
+        tmux = local.get("tmux_session", "")
+        if tmux and tmux != "train_worker":
+            _ssh_run_sync(f"tmux kill-session -t {tmux} 2>/dev/null || true", timeout=10)
+
     _save_job_local(job_id, {"status": "stopped", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
     return {"ok": True, "status": "stopped"}
 
@@ -3805,24 +3992,33 @@ async def training_stop_job(job_id: str):
 @app.post("/api/training/kill-all")
 async def training_kill_all():
     results = {"killed": [], "cleaned": [], "errors": []}
+    gpu = _gpu_ssh_config()
+
+    # Kill worker and clear remote queue
+    _ssh_run_sync("tmux kill-session -t train_worker 2>/dev/null || true", timeout=10)
+    queue_path = f"{gpu['work_dir']}/train_queue.json"
+    _write_remote_file(queue_path, '{"jobs": []}', gpu)
+
+    # Also kill any leftover old-style train_ tmux sessions
+    _ssh_run_sync("tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^train_' | xargs -I{} tmux kill-session -t {} 2>/dev/null || true", timeout=10)
+
+    # Clean local job files
     for f in TRAIN_LOG_DIR.glob("*.json"):
         try:
             local = json.loads(f.read_text())
             jid = local.get("job_id", f.stem)
             status = local.get("status", "")
             if status in ("running", "downloading", "queued"):
-                tmux = local.get("tmux_session", "")
-                if tmux and status != "queued":
-                    _ssh_run_sync(f"tmux kill-session -t {tmux} 2>/dev/null || true", timeout=10)
                 results["killed"].append(jid)
-            # Delete all non-running job files (failed, stopped, cancelled, queued)
             f.unlink()
             if status in ("failed", "stopped", "cancelled"):
                 results["cleaned"].append(jid)
         except Exception as e:
             results["errors"].append(str(e))
-    # Also kill any leftover train_ tmux sessions
-    _ssh_run_sync("tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^train_' | xargs -I{} tmux kill-session -t {} 2>/dev/null || true", timeout=10)
+
+    # Clear HF cache on GPU server
+    _ssh_run_sync("find ~/.cache/huggingface -maxdepth 4 -type d -name 'datasets--*' -exec rm -rf {} + 2>/dev/null || true", timeout=30)
+    results["cache_cleared"] = True
     return {"ok": True, **results}
 
 
