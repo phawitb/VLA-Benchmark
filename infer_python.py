@@ -26,7 +26,7 @@ from pathlib import Path
 from robot_handoff import disconnect_robot_hardware
 
 
-WORKER_COMMANDS = {"run_task", "continue", "release_hardware", "shutdown"}
+WORKER_COMMANDS = {"run_task", "continue", "release_hardware", "stop_cycle", "shutdown"}
 
 
 def prepare_runtime():
@@ -465,9 +465,23 @@ def main():
     video_signal_path = Path("data/eval_videos/.recording.json")
     video_check_interval = 10  # check every N steps
 
+    def _convert_avi_to_mp4(avi_path, mp4_path):
+        """Background convert AVI to browser-compatible MP4."""
+        import subprocess as _sp
+        try:
+            _sp.run([
+                "ffmpeg", "-y", "-i", avi_path,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-preset", "ultrafast", "-crf", "23",
+                "-movflags", "+faststart", mp4_path,
+            ], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, timeout=60)
+            os.remove(avi_path)
+            print(f"[infer_python] Video converted: {mp4_path}", flush=True)
+        except Exception as e:
+            print(f"[infer_python] Video convert error: {e}", flush=True)
+
     def _check_video_signal(obs, writer):
         """Check if recording should start/stop based on signal file."""
-        import subprocess as _sp
         import numpy as np
         if video_signal_path.exists():
             if writer is None:
@@ -483,42 +497,33 @@ def main():
                     video_rec_meta["height"] = vh
                     video_rec_meta["cam_names"] = cam_names
                     video_rec_meta["frame_count"] = 0
-                    # Use ffmpeg for H.264 encoding (browser-compatible)
-                    ffmpeg_cmd = [
-                        "ffmpeg", "-y",
-                        "-f", "rawvideo",
-                        "-vcodec", "rawvideo",
-                        "-pix_fmt", "bgr24",
-                        "-s", f"{out_w}x{vh}",
-                        "-r", str(vfps),
-                        "-i", "-",
-                        "-c:v", "libx264",
-                        "-pix_fmt", "yuv420p",
-                        "-preset", "ultrafast",
-                        "-crf", "23",
-                        "-movflags", "+faststart",
-                        vpath,
-                    ]
-                    writer = _sp.Popen(ffmpeg_cmd, stdin=_sp.PIPE, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-                    print(f"[infer_python] Video recording started (ffmpeg H.264): {vpath}", flush=True)
+                    video_rec_meta["mp4_path"] = vpath
+                    # Write AVI first (cv2.VideoWriter finalizes instantly on release)
+                    avi_path = vpath.rsplit(".", 1)[0] + ".avi"
+                    video_rec_meta["avi_path"] = avi_path
+                    fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+                    writer = cv2.VideoWriter(avi_path, fourcc, vfps, (out_w, vh))
+                    print(f"[infer_python] Video recording started: {avi_path}", flush=True)
                 except Exception as e:
                     print(f"[infer_python] Video signal error: {e}", flush=True)
             if writer is not None:
                 _write_video_frame(obs, writer)
         elif writer is not None:
-            try:
-                writer.stdin.close()
-                writer.wait(timeout=10)
-            except Exception:
-                writer.kill()
+            writer.release()
             n = video_rec_meta.get("frame_count", 0)
+            avi_path = video_rec_meta.get("avi_path", "")
+            mp4_path = video_rec_meta.get("mp4_path", "")
             video_rec_meta.clear()
             print(f"[infer_python] Video recording stopped ({n} frames)", flush=True)
+            # Convert to MP4 in background thread
+            if avi_path and mp4_path:
+                import threading as _th
+                _th.Thread(target=_convert_avi_to_mp4, args=(avi_path, mp4_path), daemon=True).start()
             writer = None
         return writer
 
     def _write_video_frame(obs, writer):
-        """Write current observation frames to ffmpeg stdin."""
+        """Write current observation frames to video."""
         import numpy as np
         frames = []
         vw = video_rec_meta["width"]
@@ -545,12 +550,8 @@ def main():
                 frame = np.zeros((vh, vw, 3), dtype=np.uint8)
             frames.append(frame)
         if frames:
-            combined = np.hstack(frames)
-            try:
-                writer.stdin.write(combined.tobytes())
-                video_rec_meta["frame_count"] = video_rec_meta.get("frame_count", 0) + 1
-            except BrokenPipeError:
-                pass
+            writer.write(np.hstack(frames))
+            video_rec_meta["frame_count"] = video_rec_meta.get("frame_count", 0) + 1
 
     print(f"[infer_python] Starting inference loop at {args.fps} FPS", flush=True)
     print("[infer_python] Press Ctrl+C to stop", flush=True)
@@ -631,6 +632,25 @@ def main():
 
             cycle_ready = cycle_boundary_reached(step, cycle_start, args.max_steps)
             worker_command = poll_worker_command() if args.persistent_worker and not cycle_ready else None
+            # stop_cycle: jump to cycle boundary immediately
+            if worker_command is not None and worker_command.get("command") == "stop_cycle":
+                print("[infer_python] stop_cycle received — jumping to cycle boundary", flush=True)
+                # Finalize video recording now
+                if video_writer is not None:
+                    video_writer.release()
+                    n = video_rec_meta.get("frame_count", 0)
+                    avi_path = video_rec_meta.get("avi_path", "")
+                    mp4_path = video_rec_meta.get("mp4_path", "")
+                    video_rec_meta.clear()
+                    print(f"[infer_python] Video recording stopped ({n} frames)", flush=True)
+                    if avi_path and mp4_path:
+                        import threading as _th
+                        _th.Thread(target=_convert_avi_to_mp4, args=(avi_path, mp4_path), daemon=True).start()
+                    video_writer = None
+                    # Remove signal file if still present
+                    video_signal_path.unlink(missing_ok=True)
+                cycle_ready = True
+                worker_command = None
             if cycle_ready:
                 verification_obs = robot.get_observation()
                 target = Path(args.verification_image) if args.verification_image else Path(f"/tmp/hybridge-vla-{os.getpid()}.jpg")
@@ -647,7 +667,7 @@ def main():
                     cycle_start = step
                     continue
 
-                worker_command = wait_for_worker_command(args.verification_timeout)
+                worker_command = wait_for_worker_command(None)  # wait indefinitely for next command
 
             if args.persistent_worker and worker_command is not None:
                 name = worker_command.get("command")
@@ -657,6 +677,17 @@ def main():
                     continue
                 if name == "shutdown":
                     break
+                if name == "run_task":
+                    # Fast restart: update task and resume without reconnecting
+                    try:
+                        apply_run_task_command(args, policy, language_cache, worker_command)
+                        step = 0
+                        cycle_start = 0
+                        print(f"[infer_python] Fast restart: task='{args.task}'", flush=True)
+                        emit_worker_event("HARDWARE_READY", {"task": args.task})
+                    except Exception as exc:
+                        emit_worker_event("WORKER_ERROR", {"code": "RUN_TASK_FAILED", "error": str(exc)})
+                    continue
                 if name != "release_hardware":
                     emit_worker_event("WORKER_ERROR", {"code": "INVALID_STATE", "error": f"Cannot {name} at cycle boundary"})
                     continue
@@ -696,12 +727,13 @@ def main():
     finally:
         print(f"[infer_python] Stopping after {step} steps")
         if video_writer is not None:
-            try:
-                video_writer.stdin.close()
-                video_writer.wait(timeout=10)
-            except Exception:
-                video_writer.kill()
-            print(f"[infer_python] Video recording finalized ({video_rec_meta.get('frame_count', 0)} frames)")
+            video_writer.release()
+            n = video_rec_meta.get("frame_count", 0)
+            avi_path = video_rec_meta.get("avi_path", "")
+            mp4_path = video_rec_meta.get("mp4_path", "")
+            print(f"[infer_python] Video recording finalized ({n} frames)")
+            if avi_path and mp4_path:
+                _convert_avi_to_mp4(avi_path, mp4_path)
         try:
             if hardware_connected:
                 disconnect_robot_hardware(robot, keep_torque=False)

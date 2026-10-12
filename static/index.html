@@ -7534,12 +7534,14 @@ function evalRenderResults() {
       }
       let videoHtml = '';
       if (r.video_filename) {
-        const vtype = r.video_filename.endsWith('.avi') ? 'video/x-msvideo' : 'video/mp4';
+        const mp4Name = r.video_filename;
+        const vid_id = 'evalVid_' + i;
         videoHtml = `<div style="margin-top:8px">
           <div style="font-size:0.68rem;font-weight:600;color:#666;margin-bottom:4px">Recorded Video</div>
-          <video controls style="max-width:100%;border-radius:6px;border:1px solid #e0e0e0;max-height:300px" preload="metadata">
-            <source src="/data/eval_videos/${r.video_filename}" type="${vtype}">
+          <video id="${vid_id}" controls style="max-width:100%;border-radius:6px;border:1px solid #e0e0e0;max-height:300px" preload="metadata">
+            <source src="/data/eval_videos/${mp4Name}" type="video/mp4">
           </video>
+          <div id="${vid_id}_msg" style="font-size:0.65rem;color:#aaa;margin-top:2px"></div>
         </div>`;
       }
       detail = `<div id="evalResultDetail_${i}" style="display:none;padding:8px 12px 10px;background:#fafafa;border-radius:0 0 8px 8px;border-top:1px dashed #e0e0e0">
@@ -7576,7 +7578,26 @@ function evalToggleDetail(idx) {
   if (el.style.display === 'none') {
     el.style.display = '';
     if (btn) btn.innerHTML = '&#9650; detail';
-    // detail expanded
+    // Auto-retry video loading if conversion not done yet
+    const vid = document.getElementById('evalVid_' + idx);
+    const msg = document.getElementById('evalVid_' + idx + '_msg');
+    if (vid && !vid._retrySetup) {
+      vid._retrySetup = true;
+      vid._retryCount = 0;
+      vid.addEventListener('error', () => {
+        if (vid._retryCount < 10) {
+          vid._retryCount++;
+          if (msg) msg.textContent = `Converting video... retry ${vid._retryCount}/10`;
+          setTimeout(() => {
+            const src = vid.querySelector('source');
+            if (src) { src.src = src.src.split('?')[0] + '?t=' + Date.now(); vid.load(); }
+          }, 3000);
+        } else {
+          if (msg) msg.textContent = 'Video conversion failed or still in progress.';
+        }
+      });
+      vid.addEventListener('loadeddata', () => { if (msg) msg.textContent = ''; });
+    }
   } else {
     el.style.display = 'none';
     if (btn) btn.innerHTML = '&#9660; detail';

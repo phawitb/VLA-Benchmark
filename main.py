@@ -4460,13 +4460,11 @@ async def eval_stop():
             "model_ready": bool(worker.get("model_ready")),
             "pid": worker.get("pid"),
         }
-    # Stop video recording FIRST so worker can finalize ffmpeg before being stopped
+    # Stop video recording
     video_filename = None
     if eval_video_state["recording"]:
         signal_file = EVAL_VIDEOS_DIR / ".recording.json"
         signal_file.unlink(missing_ok=True)
-        # Wait for worker to notice signal removal and close ffmpeg
-        await asyncio.sleep(1.5)
         video_filename = os.path.basename(eval_video_state["video_path"]) if eval_video_state["video_path"] else None
         eval_video_state["recording"] = False
     eval_video_state["stop_event"] = None
@@ -4477,9 +4475,13 @@ async def eval_stop():
         stopped = await asyncio.to_thread(vla_manager.stop)
         released = {"ok": bool(stopped.get("ok", True)), "worker_stopped": True}
     else:
-        released = await asyncio.to_thread(vla_manager.release_hardware, 10.0)
-        if not released.get("ok"):
-            await asyncio.to_thread(vla_manager.stop)
+        # Stop inference loop but keep hardware connected for fast restart
+        released = await asyncio.to_thread(vla_manager.stop_cycle, 5.0)
+        if not released.get("ok") and not released.get("already_stopped"):
+            # Fallback: full release if stop_cycle fails
+            released = await asyncio.to_thread(vla_manager.release_hardware, 10.0)
+            if not released.get("ok"):
+                await asyncio.to_thread(vla_manager.stop)
     with eval_lifecycle_lock:
         eval_state["running"] = False
         eval_state["process"] = None
@@ -4490,14 +4492,6 @@ async def eval_stop():
         release_robot_operation("eval")
 
     worker = vla_manager.status()
-    if not released.get("ok"):
-        return {
-            **released,
-            "video_filename": video_filename,
-            "model_ready": False,
-            "pid": worker.get("pid"),
-            "worker_stopped": True,
-        }
     return {
         "ok": True,
         "video_filename": video_filename,

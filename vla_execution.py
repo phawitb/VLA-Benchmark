@@ -307,10 +307,11 @@ class VlaProcessManager:
         timeout: float = 30.0,
     ) -> dict:
         current = self.status()
-        if not current["model_ready"] or current["hardware_connected"]:
+        if not current["model_ready"]:
             return {"ok": False, "code": "VLA_NOT_READY", "error": "VLA model is not ready for a new task"}
         with self._lock:
             self._state = "connecting_vla_hardware"
+            self._active_task = None  # reset so _wait_for detects new HARDWARE_READY
         sent = self._send_command({
             "command": "run_task",
             "task": task,
@@ -341,6 +342,23 @@ class VlaProcessManager:
             timeout,
             "HARDWARE_RELEASE_TIMEOUT",
             "Timed out releasing VLA hardware",
+        )
+
+    def stop_cycle(self, timeout: float = 10.0) -> dict:
+        """Stop current inference cycle but keep hardware connected."""
+        current = self.status()
+        if not current["running"]:
+            return {"ok": True, "already_stopped": True}
+        if current["state"] == "waiting_for_verification":
+            return {"ok": True, "already_stopped": True}
+        sent = self._send_command({"command": "stop_cycle"})
+        if not sent.get("ok"):
+            return sent
+        return self._wait_for(
+            lambda: self._state == "waiting_for_verification",
+            timeout,
+            "STOP_CYCLE_TIMEOUT",
+            "Timed out stopping inference cycle",
         )
 
     def continue_cycle(self) -> dict:
