@@ -57,7 +57,9 @@ def normalize_worker_command(value: str) -> dict | None:
 
 
 def reset_policy_task_state(policy, language_cache: dict) -> None:
-    if hasattr(policy, "_queues"):
+    if callable(getattr(policy, "reset", None)):
+        policy.reset()
+    elif hasattr(policy, "_queues"):
         queue = policy._queues.get("action")
         if hasattr(queue, "clear"):
             queue.clear()
@@ -189,6 +191,24 @@ def apply_run_task_command(args, policy, language_cache: dict, command: dict) ->
     args.verification_timeout = float(command.get("verification_timeout", 120.0))
     # Store augmentation params for challenge environment
     args._augment = command.get("augment") or None
+    args._reset_position = command.get("reset_position") or None
+
+
+def move_to_episode_reset(robot, args):
+    """Reset through the worker that already owns the serial port and cameras."""
+    target = getattr(args, "_reset_position", None)
+    if not target:
+        return
+    import math
+    positions = robot.bus.sync_read("Present_Position")
+    if any(key not in positions or not math.isfinite(float(value)) for key, value in target.items()):
+        raise ValueError("Invalid episode reset position")
+    action = {f"{key}.pos": float(target.get(key, value)) for key, value in positions.items()}
+    for _ in range(30):
+        if not _running:
+            raise RuntimeError("Episode reset cancelled")
+        robot.send_action(action)
+        time.sleep(0.033)
 
 
 def challenge_joint_deltas(augment, joint_keys, step):
@@ -435,6 +455,7 @@ def main():
     robot.connect()
     print("[infer_python] Robot connected", flush=True)
     hardware_connected = True
+    move_to_episode_reset(robot, args)
     if args.persistent_worker:
         emit_worker_event("HARDWARE_READY", {"task": args.task})
 
@@ -819,6 +840,7 @@ def main():
                     # Fast restart: update task and resume without reconnecting
                     try:
                         apply_run_task_command(args, policy, language_cache, worker_command)
+                        move_to_episode_reset(robot, args)
                         step = 0
                         cycle_start = 0
                         aug_info = ""
@@ -855,6 +877,7 @@ def main():
                         apply_run_task_command(args, policy, language_cache, next_command)
                         robot.connect()
                         hardware_connected = True
+                        move_to_episode_reset(robot, args)
                         step = 0
                         cycle_start = 0
                         emit_worker_event("HARDWARE_READY", {"task": args.task})

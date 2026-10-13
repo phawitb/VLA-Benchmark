@@ -306,6 +306,7 @@ class VlaProcessManager:
         verification_timeout: float = 120.0,
         timeout: float = 30.0,
         augment: dict | None = None,
+        reset_position: dict | None = None,
     ) -> dict:
         current = self.status()
         if not current["model_ready"]:
@@ -320,6 +321,8 @@ class VlaProcessManager:
             "verification_image": verification_image,
             "verification_timeout": float(verification_timeout),
         }
+        if reset_position:
+            payload["reset_position"] = reset_position
         if augment:
             payload["augment"] = augment
         sent = self._send_command(payload)

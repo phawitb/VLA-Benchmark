@@ -4549,6 +4549,7 @@ async def eval_challenge_preview(request: Request):
 
 
 async def _eval_start_owned(body: dict):
+    started_at = time.monotonic()
     start_token = body.get("_start_token")
     model_id = body.get("model_id", "")
     task = body.get("task", "")
@@ -4564,17 +4565,12 @@ async def _eval_start_owned(body: dict):
         await teleop_stop()
     if robot_state["connected"]:
         disconnect_robot()
-        time.sleep(1.0)
 
     augment_params = _eval_challenge_params(
         body.get("challenge_env"), int(body.get("episode", 1)), fps, duration)
     augment_seed = augment_params["seed"] if augment_params else None
 
     reset_pos = _eval_load_reset_position()
-    if reset_pos:
-        ok, err = _eval_move_to_reset(owner="eval", acquire=False)
-        if not ok:
-            return {"ok": False, "error": f"Failed to move to reset position: {err}"}
 
     cfg = load_config()
     robot_cfg = cfg.get("robot", {})
@@ -4583,7 +4579,7 @@ async def _eval_start_owned(body: dict):
     selected_cams = _eval_filter_cameras(all_cams, cam_select)
     cams = selected_cams
 
-    record = get_model_record(_load_model_registry(cfg), str(model_id))
+    record = get_model_record(load_local_models(ROOT / "models", set(all_cams)), str(model_id))
     if not record or not record.get("selectable"):
         return {"ok": False, "error": f"Selected model is not executable: {model_id}"}
     model_path = (ROOT / str(record.get("local_path", ""))).resolve()
@@ -4607,6 +4603,7 @@ async def _eval_start_owned(body: dict):
             chunk_size=chunk_size,
             n_action_steps=n_action_steps,
         )
+        resolved_at = time.monotonic()
         ready = await asyncio.to_thread(vla_manager.ensure_model, cmd, str(model_id), 120.0)
         if not ready.get("ok"):
             await asyncio.to_thread(vla_manager.stop)
@@ -4621,6 +4618,7 @@ async def _eval_start_owned(body: dict):
         if cancelled:
             await asyncio.to_thread(vla_manager.stop_if_pid, ready.get("pid"))
             return {"ok": False, "code": "EVAL_START_CANCELLED", "error": "Evaluation start was cancelled"}
+        ready_at = time.monotonic()
         verification_image = ROOT / "data" / "eval_verification" / "latest.jpg"
         verification_image.parent.mkdir(parents=True, exist_ok=True)
         started = await asyncio.to_thread(
@@ -4631,6 +4629,7 @@ async def _eval_start_owned(body: dict):
             max(120.0, duration + 30.0),
             30.0,
             augment_params,
+            reset_position=reset_pos,
         )
         with eval_lifecycle_lock:
             cancelled = start_token is not None and (
@@ -4657,7 +4656,14 @@ async def _eval_start_owned(body: dict):
             "pid": started.get("pid"),
             "reused_model": bool(ready.get("reused")),
             "cmd": " ".join(cmd),
+            "startup_seconds": {
+                "prepare": round(resolved_at - started_at, 3),
+                "model": round(ready_at - resolved_at, 3),
+                "hardware_and_reset": round(time.monotonic() - ready_at, 3),
+                "total": round(time.monotonic() - started_at, 3),
+            },
         }
+        print(f"[Eval] Episode startup: {result['startup_seconds']} reused_model={result['reused_model']}", flush=True)
         if augment_params:
             result["augment_params"] = augment_params
             result["augment_seed"] = augment_seed
