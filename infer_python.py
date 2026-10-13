@@ -191,7 +191,33 @@ def apply_run_task_command(args, policy, language_cache: dict, command: dict) ->
     args._augment = command.get("augment") or None
 
 
-def _aug_frame(frame, cam_p, light_p, cv2, np):
+def challenge_joint_deltas(augment, joint_keys, step):
+    """Use identical per-step offsets for observations/actions, never the gripper."""
+    import random
+    params = (augment or {}).get("robot") or {}
+    if not params:
+        return {}
+    rng = random.Random(f"{augment.get('seed', 0)}:{step}")
+    offsets = params.get("joint_offset") or []
+    sigma = max(0.0, float(params.get("jitter_s", 0)))
+    keys = [k for k in joint_keys if k.endswith(".pos") and "gripper" not in k.lower()][:5]
+    return {key: (float(offsets[i]) if i < len(offsets) else 0.0) + rng.gauss(0, sigma)
+            for i, key in enumerate(keys)}
+
+
+def apply_challenge_joint_deltas(values, deltas):
+    result = dict(values)
+    for key, delta in deltas.items():
+        if key in result:
+            result[key] = float(result[key]) + delta
+    return result
+
+
+def challenge_should_send_action(augment, step):
+    return step >= int(((augment or {}).get("robot") or {}).get("trim", 0))
+
+
+def _aug_frame(frame, cam_p, light_p, cv2, np, rng=None):
     """Apply camera shift and lighting augmentation to a BGR frame."""
     h, w = frame.shape[:2]
     f = frame
@@ -241,11 +267,18 @@ def _aug_frame(frame, cam_p, light_p, cv2, np):
                 shadow = np.tile(g.reshape(-1, 1), (1, ww))
             ff = (ff.astype(np.float32) * shadow[:, :, np.newaxis]).clip(0, 255).astype(np.uint8)
         if "noise_s" in light_p:
-            noise = np.random.normal(0, light_p["noise_s"], ff.shape)
+            noise = (rng if rng is not None else np.random).normal(0, light_p["noise_s"], ff.shape)
             ff = np.clip(ff.astype(np.float32) + noise, 0, 255).astype(np.uint8)
         if "blur_k" in light_p:
             ff = cv2.GaussianBlur(ff, (light_p["blur_k"], light_p["blur_k"]), light_p["blur_s"])
         f = ff
+    if light_p and "occlusion" in light_p:
+        h, w = f.shape[:2]
+        x, y, width, height = light_p["occlusion"]
+        rw, rh = max(1, round(width * w)), max(1, round(height * h))
+        x0, y0 = min(round(x * w), w - rw), min(round(y * h), h - rh)
+        f = f.copy()
+        f[y0:y0 + rh, x0:x0 + rw] = 0
     return f
 
 
@@ -631,13 +664,15 @@ def main():
 
             # Get observation from robot
             obs = robot.get_observation()
+            joint_deltas = challenge_joint_deltas(args._augment, robot.action_features, step)
+            obs = apply_challenge_joint_deltas(obs, joint_deltas)
 
             # Apply challenge environment augmentation to camera images
             if args._augment:
                 _aug_cam = args._augment.get("camera")
                 _aug_lit = args._augment.get("light")
                 _aug_applied = False
-                for _cam_name in cameras_dict:
+                for _cam_index, _cam_name in enumerate(cameras_dict):
                     for _cam_key in (_cam_name, f"observation.images.{_cam_name}"):
                         if _cam_key not in obs or obs[_cam_key] is None:
                             continue
@@ -653,7 +688,8 @@ def main():
                             _scale = 255.0 if _img.size and float(_img.max()) <= 1.0 else 1.0
                             _img = np.clip(_img * _scale, 0, 255).astype(np.uint8)
                         _img = cv2.cvtColor(_img, cv2.COLOR_RGB2BGR)
-                        _img = _aug_frame(_img, _aug_cam, _aug_lit, cv2, np)
+                        _rng = np.random.default_rng([args._augment.get("seed", 0), step, _cam_index])
+                        _img = _aug_frame(_img, _aug_cam, _aug_lit, cv2, np, rng=_rng)
                         _img = cv2.cvtColor(_img, cv2.COLOR_BGR2RGB)
                         obs[_cam_key] = _img
                         _aug_applied = True
@@ -707,7 +743,9 @@ def main():
             t_post = time.time()
 
             # Send to robot
-            robot.send_action(action)
+            action = apply_challenge_joint_deltas(action, joint_deltas)
+            if challenge_should_send_action(args._augment, step):
+                robot.send_action(action)
             t_send = time.time()
 
             step += 1

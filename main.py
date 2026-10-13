@@ -1277,6 +1277,9 @@ async def delete_dataset(name: str):
         return {"ok": False, "error": "Dataset not found"}
     try:
         shutil.rmtree(dataset_dir)
+        cfg_path = AUGMENT_CONFIG_DIR / f"{name}.json"
+        if cfg_path.exists():
+            cfg_path.unlink()
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -1376,6 +1379,9 @@ async def rename_dataset(name: str, request: Request):
         return {"ok": False, "error": f"Dataset '{new_name}' already exists"}
     try:
         dataset_dir.rename(new_dir)
+        old_cfg = AUGMENT_CONFIG_DIR / f"{name}.json"
+        if old_cfg.exists():
+            old_cfg.rename(AUGMENT_CONFIG_DIR / f"{new_name}.json")
         return {"ok": True, "new_name": new_name}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -1752,6 +1758,9 @@ async def delete_episodes(name: str, request: Request):
     try:
         info = json.loads(info_path.read_text())
         original_total = info.get("total_episodes", 0)
+        augment_config_path = AUGMENT_CONFIG_DIR / f"{name}.json"
+        augment_config = (json.loads(augment_config_path.read_text())
+                          if augment_config_path.exists() else None)
 
         # 1. Filter episode metadata
         ep_dir = dataset_dir / "meta" / "episodes"
@@ -1769,6 +1778,12 @@ async def delete_episodes(name: str, request: Request):
 
         remaining_old = sorted(set(r["episode_index"] for r in all_ep_rows))
         ep_remap = {old: new for new, old in enumerate(remaining_old)}
+        if augment_config is not None:
+            augment_config["episodes"] = [
+                {**episode, "new_ep": ep_remap[episode["new_ep"]]}
+                for episode in augment_config.get("episodes", [])
+                if episode.get("new_ep") in ep_remap
+            ]
         for row in all_ep_rows:
             row["episode_index"] = ep_remap[row["episode_index"]]
 
@@ -1827,6 +1842,8 @@ async def delete_episodes(name: str, request: Request):
             stats_path.unlink()
 
         deleted_count = original_total - new_total_episodes
+        if augment_config is not None:
+            augment_config_path.write_text(json.dumps(augment_config, indent=2))
         return {
             "ok": True,
             "deleted": deleted_count,
@@ -2310,7 +2327,9 @@ async def remove_idle_dataset(name: str, request: Request):
 _INTENSITY_SCALE = {1: 0.25, 2: 0.5, 3: 1.0, 4: 1.5, 5: 2.0}
 
 
-def _augp_camera(opts, intensity=3, fixed=None):
+def _augp_camera(opts, intensity=3, fixed=None, *, rng=None, np_rng=None):
+    rng = rng if rng is not None else random
+    np_rng = np_rng if np_rng is not None else np.random
     s = _INTENSITY_SCALE.get(intensity, 1.0)
     p = {}
     if fixed:
@@ -2326,20 +2345,33 @@ def _augp_camera(opts, intensity=3, fixed=None):
             p["angle"] = float(fixed["angle"])
         return p or None
     if opts.get("perspective"):
-        p["persp"] = np.random.uniform(-0.05 * s, 0.05 * s, (4, 2))
+        p["persp"] = np_rng.uniform(-0.05 * s, 0.05 * s, (4, 2))
     if opts.get("affine"):
-        p["tx"] = random.uniform(-0.04 * s, 0.04 * s)
-        p["ty"] = random.uniform(-0.04 * s, 0.04 * s)
-        p["shear"] = random.uniform(-0.03 * s, 0.03 * s)
-        p["scale"] = random.uniform(1 - 0.05 * s, 1 + 0.05 * s)
+        p["tx"] = rng.uniform(-0.04 * s, 0.04 * s)
+        p["ty"] = rng.uniform(-0.04 * s, 0.04 * s)
+        p["shear"] = rng.uniform(-0.03 * s, 0.03 * s)
+        p["scale"] = rng.uniform(1 - 0.05 * s, 1 + 0.05 * s)
     if opts.get("rotation"):
-        p["angle"] = random.uniform(-4 * s, 4 * s)
+        p["angle"] = rng.uniform(-4 * s, 4 * s)
     return p or None
 
 
-def _augp_light(opts, intensity=3, fixed=None):
+def _augp_light(opts, intensity=3, fixed=None, *, rng=None):
+    rng = rng if rng is not None else random
     s = _INTENSITY_SCALE.get(intensity, 1.0)
     p = {}
+    if opts.get("occlusion"):
+        # Normalized coordinates work for both preview and full-size videos.
+        if fixed and fixed.get("occlusion") is not None:
+            x, y, width, height = map(float, fixed["occlusion"])
+            width, height = min(1.0, max(0.01, width)), min(1.0, max(0.01, height))
+            p["occlusion"] = [min(max(0.0, x), 1 - width),
+                              min(max(0.0, y), 1 - height), width, height]
+        else:
+            width = rng.uniform(0.10 * s, 0.30 * s)
+            height = rng.uniform(0.10 * s, 0.30 * s)
+            p["occlusion"] = [rng.uniform(0, 1 - width),
+                              rng.uniform(0, 1 - height), width, height]
     if fixed:
         if opts.get("brightness") and fixed.get("brightness") is not None:
             p["brightness"] = float(fixed["brightness"])
@@ -2349,8 +2381,8 @@ def _augp_light(opts, intensity=3, fixed=None):
             p["saturation"] = float(fixed["saturation"])
         if opts.get("color_jitter") and fixed.get("hue") is not None:
             p["hue"] = int(fixed["hue"])
-            p["sat_off"] = int(fixed.get("sat_off", 0))
-            p["val_off"] = int(fixed.get("val_off", 0))
+            p["sat_off"] = int(fixed.get("sat_off") or 0)
+            p["val_off"] = int(fixed.get("val_off") or 0)
         if opts.get("shadow") and fixed.get("shadow_a") is not None:
             p["shadow_dir"] = fixed.get("shadow_dir", "left")
             p["shadow_a"] = float(fixed["shadow_a"])
@@ -2361,29 +2393,30 @@ def _augp_light(opts, intensity=3, fixed=None):
             p["blur_s"] = float(fixed["blur_s"])
         return p or None
     if opts.get("brightness"):
-        p["brightness"] = random.uniform(1 - 0.25 * s, 1 + 0.25 * s)
+        p["brightness"] = rng.uniform(1 - 0.25 * s, 1 + 0.25 * s)
     if opts.get("contrast"):
-        p["contrast"] = random.uniform(1 - 0.25 * s, 1 + 0.25 * s)
+        p["contrast"] = rng.uniform(1 - 0.25 * s, 1 + 0.25 * s)
     if opts.get("saturation"):
-        p["saturation"] = random.uniform(1 - 0.35 * s, 1 + 0.35 * s)
+        p["saturation"] = rng.uniform(1 - 0.35 * s, 1 + 0.35 * s)
     if opts.get("color_jitter"):
         h = int(8 * s)
         sv = int(15 * s)
-        p["hue"] = random.randint(-h, h)
-        p["sat_off"] = random.randint(-sv, sv)
-        p["val_off"] = random.randint(-sv, sv)
+        p["hue"] = rng.randint(-h, h)
+        p["sat_off"] = rng.randint(-sv, sv)
+        p["val_off"] = rng.randint(-sv, sv)
     if opts.get("shadow"):
-        p["shadow_dir"] = random.choice(["left", "right", "top", "bottom"])
-        p["shadow_a"] = random.uniform(0.15 * s, 0.4 * s)
+        p["shadow_dir"] = rng.choice(["left", "right", "top", "bottom"])
+        p["shadow_a"] = rng.uniform(0.15 * s, 0.4 * s)
     if opts.get("noise"):
-        p["noise_s"] = random.uniform(4 * s, 12 * s)
+        p["noise_s"] = rng.uniform(4 * s, 12 * s)
     if opts.get("blur"):
-        p["blur_k"] = random.choice([3, 5] if s <= 1.0 else [3, 5, 7])
-        p["blur_s"] = random.uniform(0.4 * s, 1.2 * s)
+        p["blur_k"] = rng.choice([3, 5] if s <= 1.0 else [3, 5, 7])
+        p["blur_s"] = rng.uniform(0.4 * s, 1.2 * s)
     return p or None
 
 
-def _augp_robot(opts, n_frames, fps, intensity=3, fixed=None):
+def _augp_robot(opts, n_frames, fps, intensity=3, fixed=None, *, rng=None):
+    rng = rng if rng is not None else random
     s = _INTENSITY_SCALE.get(intensity, 1.0)
     p = {}
     if fixed:
@@ -2397,11 +2430,11 @@ def _augp_robot(opts, n_frames, fps, intensity=3, fixed=None):
         p["fps"] = fps
         return p or None
     if opts.get("random_start") and n_frames > 30:
-        p["trim"] = random.randint(1, max(1, int(n_frames * 0.12 * s)))
+        p["trim"] = rng.randint(1, max(1, int(n_frames * 0.12 * s)))
     if opts.get("initial_noise"):
-        p["joint_offset"] = [random.gauss(0, 1.5 * s) for _ in range(5)] + [0.0]
+        p["joint_offset"] = [rng.gauss(0, 1.5 * s) for _ in range(5)] + [0.0]
     if opts.get("trajectory_jitter"):
-        p["jitter_s"] = random.uniform(0.3 * s, 1.0 * s)
+        p["jitter_s"] = rng.uniform(0.3 * s, 1.0 * s)
     p["fps"] = fps
     return p or None
 
@@ -2497,6 +2530,13 @@ def _aug_frame(frame, cam_p, light_p):
         if "blur_k" in light_p:
             ff = cv2.GaussianBlur(ff, (light_p["blur_k"], light_p["blur_k"]), light_p["blur_s"])
         f = ff
+    if light_p and "occlusion" in light_p:
+        h, w = f.shape[:2]
+        x, y, width, height = light_p["occlusion"]
+        rw, rh = max(1, round(width * w)), max(1, round(height * h))
+        x0, y0 = min(round(x * w), w - rw), min(round(y * h), h - rh)
+        f = f.copy()
+        f[y0:y0 + rh, x0:x0 + rw] = 0
     return f
 
 
@@ -2683,6 +2723,8 @@ def _run_augmentation(src_name, new_name, target_episodes, techniques, intensity
 
         cam_opts = techniques.get("camera_shift", {})
         light_opts = techniques.get("light_quality", {})
+        if techniques.get("occlusion", {}).get("enabled"):
+            light_opts = {**(light_opts if light_opts.get("enabled") else {}), "enabled": True, "occlusion": True}
         robot_opts = techniques.get("robot_noise", {})
         lang_opts = techniques.get("language", {})
         cam_fixed = fixed_params.get("camera") if fixed_params else None
@@ -2907,6 +2949,8 @@ async def augment_preview(name: str, request: Request):
 
     cam_opts = techniques.get("camera", {})
     light_opts = techniques.get("light", {})
+    if techniques.get("occlusion", {}).get("enabled"):
+        light_opts = {**(light_opts if light_opts.get("enabled") else {}), "enabled": True, "occlusion": True}
     mode = body.get("mode", "random")
     fixed_params = body.get("fixed_params") if mode == "fix" else None
     cam_fixed = fixed_params.get("camera") if fixed_params else None
@@ -4340,6 +4384,118 @@ async def eval_start(request: Request):
     return result
 
 
+def _eval_challenge_params(config, episode, fps, duration):
+    """Build one reproducible challenge without changing process-wide RNG state."""
+    if not config or not config.get("enabled"):
+        return None
+    intensity = max(1, min(5, int(config.get("intensity", 3))))
+    mode = config.get("mode", "random")
+    fixed = (config.get("fixed_params") or {}) if mode == "fix" else {}
+    rng = random.Random(episode)
+    np_rng = np.random.RandomState(episode)
+    camera = config.get("camera") or {}
+    light = config.get("light") or {}
+    robot = config.get("robot") or {}
+    if not light.get("enabled", True):
+        light = {}
+    if (config.get("occlusion") or {}).get("enabled"):
+        light = {**light, "occlusion": True}
+    cam_p = (_augp_camera(camera, intensity, fixed.get("camera"), rng=rng, np_rng=np_rng)
+             if camera.get("enabled", True) else None)
+    light_p = _augp_light(light, intensity, fixed.get("light"), rng=rng)
+    n_frames = max(1, int(fps * duration))
+    robot_p = (_augp_robot(robot, n_frames, fps, intensity, fixed.get("robot"), rng=rng)
+               if robot.get("enabled", False) else None)
+    if robot_p and "trim" in robot_p:
+        robot_p["trim"] = min(max(0, robot_p["trim"]), n_frames - 1)
+    # Fixed trim is also meaningful for short live evaluation episodes.
+    if robot_p and mode == "fix" and robot.get("random_start"):
+        robot_p["trim"] = min(max(0, int((fixed.get("robot") or {}).get("trim") or 0)), n_frames - 1)
+    elif robot_p and robot.get("random_start") and "trim" not in robot_p and n_frames > 1:
+        robot_p["trim"] = rng.randint(1, min(n_frames - 1, max(1, int(n_frames * .12 * _INTENSITY_SCALE[intensity]))))
+    params = {"seed": episode, "mode": mode}
+    for group, values in [("camera", cam_p), ("light", light_p), ("robot", robot_p)]:
+        if values:
+            params[group] = {k: v.tolist() if hasattr(v, "tolist") else v for k, v in values.items()}
+    return params if len(params) > 2 else None
+
+
+def _eval_challenge_preview(body):
+    """Preview saved dataset images using the evaluation worker's exact transform."""
+    import cv2
+    from infer_python import _aug_frame as worker_aug_frame
+
+    name = str(body.get("dataset", ""))
+    source = (DATA_DIR / name).resolve()
+    if not name or source.parent != DATA_DIR.resolve() or not (source / "meta/info.json").exists():
+        return {"ok": False, "error": "Select an available dataset for preview"}
+    try:
+        episode = max(1, int(body.get("episode", 1)))
+        count = max(1, min(5, int(body.get("count", 5))))
+        fps = max(1, int(body.get("fps", 30)))
+        duration = max(1, int(body.get("duration", 12)))
+        width = max(1, min(3840, int(body.get("width", 320))))
+        height = max(1, min(2160, int(body.get("height", 240))))
+        info = json.loads((source / "meta/info.json").read_text())
+        cameras = _get_camera_keys(info)
+        selected = str(body.get("cam_count", "all"))
+        if selected in ("1-top", "1-wrist"):
+            cameras = [c for c in cameras if c.rsplit(".", 1)[-1] == selected[2:]]
+        if not cameras:
+            return {"ok": False, "error": "No matching cameras in this dataset"}
+        episodes = []
+        for path in sorted((source / "meta/episodes").rglob("*.parquet")):
+            episodes.extend(pq.read_table(path).to_pylist())
+        episodes.sort(key=lambda row: row.get("episode_index", 0))
+        samples = random.Random(episode).sample(episodes, min(count, len(episodes)))
+        previews = []
+        for offset, meta in enumerate(samples):
+            challenge_episode = episode + offset
+            params = _eval_challenge_params(body.get("challenge_env"), challenge_episode, fps, duration)
+            for camera_index, camera in enumerate(cameras):
+                key = f"videos/{camera}"
+                chunk = int(meta.get(f"{key}/chunk_index", 0))
+                index = int(meta.get(f"{key}/file_index", 0))
+                path = source / "videos" / camera / f"chunk-{chunk:03d}" / f"file-{index:03d}.mp4"
+                if not path.exists():
+                    continue
+                capture = cv2.VideoCapture(str(path))
+                try:
+                    capture.set(cv2.CAP_PROP_POS_MSEC, float(meta.get(f"{key}/from_timestamp", 0)) * 1000)
+                    ok, frame = capture.read()
+                finally:
+                    capture.release()
+                if not ok or frame is None:
+                    continue
+                # Apply pixel-based effects at the evaluation resolution, then
+                # shrink both images equally for display.
+                frame = cv2.resize(frame, (width, height))
+                values = params or {}
+                augmented = worker_aug_frame(frame, values.get("camera"), values.get("light"), cv2, np,
+                    rng=np.random.default_rng([challenge_episode, 0, camera_index]))
+                scale = min(1, 320 / width, 240 / height)
+                size = (max(1, round(width * scale)), max(1, round(height * scale)))
+                frame, augmented = cv2.resize(frame, size), cv2.resize(augmented, size)
+                def encode(image):
+                    ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    if not ok:
+                        raise ValueError("Could not encode preview image")
+                    return base64.b64encode(encoded).decode()
+                previews.append({"source_episode": meta.get("episode_index", 0),
+                    "challenge_episode": challenge_episode, "camera": camera.rsplit(".", 1)[-1],
+                    "original": encode(frame), "augmented": encode(augmented), "params": params})
+        if not previews:
+            return {"ok": False, "error": "No readable video frames in this dataset"}
+        return {"ok": True, "previews": previews}
+    except (ValueError, TypeError, OSError, cv2.error) as exc:
+        return {"ok": False, "error": f"Preview failed: {exc}"}
+
+
+@app.post("/api/eval/challenge-preview")
+async def eval_challenge_preview(request: Request):
+    return await asyncio.to_thread(_eval_challenge_preview, await request.json())
+
+
 async def _eval_start_owned(body: dict):
     start_token = body.get("_start_token")
     model_id = body.get("model_id", "")
@@ -4358,34 +4514,9 @@ async def _eval_start_owned(body: dict):
         disconnect_robot()
         time.sleep(1.0)
 
-    # Challenge environment: generate augmentation params for this episode
-    # Seed is based on episode number so same episode = same augmentation across models
-    challenge_env = body.get("challenge_env")
-    augment_params = None
-    augment_seed = None
-    if challenge_env and challenge_env.get("enabled"):
-        episode = int(body.get("episode", 1))
-        augment_seed = episode
-        random.seed(augment_seed)
-        np.random.seed(augment_seed)
-        ch_intensity = int(challenge_env.get("intensity", 3))
-        ch_camera = challenge_env.get("camera", {})
-        ch_light = challenge_env.get("light", {})
-        cam_p = _augp_camera(ch_camera, intensity=ch_intensity)
-        light_p = _augp_light(ch_light, intensity=ch_intensity)
-        # Restore RNG to non-deterministic state
-        random.seed()
-        np.random.seed()
-        if cam_p or light_p:
-            augment_params = {}
-            if cam_p:
-                # Convert numpy arrays to lists for JSON serialization
-                serializable_cam = {}
-                for k, v in cam_p.items():
-                    serializable_cam[k] = v.tolist() if hasattr(v, 'tolist') else v
-                augment_params["camera"] = serializable_cam
-            if light_p:
-                augment_params["light"] = light_p
+    augment_params = _eval_challenge_params(
+        body.get("challenge_env"), int(body.get("episode", 1)), fps, duration)
+    augment_seed = augment_params["seed"] if augment_params else None
 
     reset_pos = _eval_load_reset_position()
     if reset_pos:

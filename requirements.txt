@@ -7,3 +7,5 @@ Pillow
 python-dotenv
 pyarrow
 numpy
+opencv-python>=4.8.0
+pandas

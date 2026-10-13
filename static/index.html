@@ -1179,7 +1179,7 @@ pip install lerobot</pre>
           </div>
           <!-- Challenge Environment -->
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer" onclick="document.getElementById('evalChallengeBody').style.display=document.getElementById('evalChallengeBody').style.display==='none'?'':'none';this.querySelector('.chevron').textContent=document.getElementById('evalChallengeBody').style.display==='none'?'\u25B6':'\u25BC'">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer" onclick="document.getElementById('evalChallengeBody').style.display=document.getElementById('evalChallengeBody').style.display==='none'?'':'none';this.querySelector('.chevron').textContent=document.getElementById('evalChallengeBody').style.display==='none'?'\u25B6':'\u25BC';if(document.getElementById('evalChallengeBody').style.display!=='none')evalLoadChallengePreviewSources()">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="event.stopPropagation()">
                 <input type="checkbox" id="evalChallengeEnabled" onchange="evalConfigChanged()">
                 <span style="font-size:0.85rem;font-weight:600;color:#6a1b9a">Challenge Environment</span>
@@ -1187,37 +1187,7 @@ pip install lerobot</pre>
               <span style="font-size:0.72rem;color:#aaa">Simulate challenging conditions during inference</span>
               <span class="chevron" style="font-size:0.7rem;color:#aaa;margin-left:auto">&#9654;</span>
             </div>
-            <div id="evalChallengeBody" style="display:none">
-              <div style="margin-bottom:10px">
-                <label class="form-label">Intensity (1-5)</label>
-                <input type="range" id="evalChallengeIntensity" min="1" max="5" value="3" style="width:200px" onchange="evalConfigChanged()">
-                <div style="display:flex;justify-content:space-between;width:200px;font-size:0.72rem;color:#999"><span>Subtle</span><span>Strong</span></div>
-              </div>
-              <div style="display:flex;gap:12px;flex-wrap:wrap">
-                <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;flex:1;min-width:200px">
-                  <label style="font-weight:600;font-size:0.82rem"><input type="checkbox" id="evalChCamEnabled" checked onchange="evalConfigChanged()"> Camera Shift</label>
-                  <div style="font-size:0.72rem;color:#999;margin:2px 0 4px 18px">Geometric transforms on camera images</div>
-                  <div style="padding-left:18px;font-size:0.8rem;color:#666">
-                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChCamPersp" checked onchange="evalConfigChanged()"> Perspective</label></div>
-                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChCamAffine" checked onchange="evalConfigChanged()"> Affine</label></div>
-                    <div><label><input type="checkbox" id="evalChCamRot" checked onchange="evalConfigChanged()"> Rotation</label></div>
-                  </div>
-                </div>
-                <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;flex:1;min-width:200px">
-                  <label style="font-weight:600;font-size:0.82rem"><input type="checkbox" id="evalChLightEnabled" checked onchange="evalConfigChanged()"> Light & Quality</label>
-                  <div style="font-size:0.72rem;color:#999;margin:2px 0 4px 18px">Lighting and camera quality variations</div>
-                  <div style="padding-left:18px;font-size:0.8rem;color:#666">
-                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightBright" checked onchange="evalConfigChanged()"> Brightness</label></div>
-                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightContrast" checked onchange="evalConfigChanged()"> Contrast</label></div>
-                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightSat" checked onchange="evalConfigChanged()"> Saturation</label></div>
-                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightJitter" checked onchange="evalConfigChanged()"> Color Jitter</label></div>
-                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightShadow" onchange="evalConfigChanged()"> Shadow</label></div>
-                    <div style="margin-bottom:2px"><label><input type="checkbox" id="evalChLightNoise" onchange="evalConfigChanged()"> Noise</label></div>
-                    <div><label><input type="checkbox" id="evalChLightBlur" onchange="evalConfigChanged()"> Blur</label></div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <div id="evalChallengeBody" style="display:none"></div>
           </div>
           <!-- Reset Position -->
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0">
@@ -1470,6 +1440,7 @@ pip install lerobot</pre>
 </div>
 
 
+<script src="/static/eval_challenge.js"></script>
 <script>
 const COLORS = ['#e8453c','#1a73e8','#34a853','#f9ab00','#a142f4','#e8710a','#00bcd4','#e91e90','#8bc34a','#795548'];
 let cfg = null;
@@ -2697,7 +2668,18 @@ document.getElementById('vizDatasetSelect').addEventListener('change', async fun
     const allTasks = d.tasks || [];
     const task = allTasks.length ? allTasks[0] : '-';
     vizCurrentTask = task;
-    vizAugInfo = d.augmentation || null;
+    vizAugInfo = null;
+    try {
+      const ac = await (await fetch(`/api/datasets/${name}/augment-config`)).json();
+      if (ac.ok && ac.is_augmented) vizAugInfo = ac.config;
+    } catch(e) { console.error('Unable to load augmentation config', e); }
+    const augBtn = document.querySelector('[onclick="vizShowAugment()"]');
+    if (augBtn) {
+      augBtn.disabled = !!vizAugInfo;
+      augBtn.style.opacity = vizAugInfo ? '0.4' : '';
+      augBtn.style.pointerEvents = vizAugInfo ? 'none' : '';
+      augBtn.title = vizAugInfo ? 'This dataset was created by augmentation' : '';
+    }
 
     // Fetch episodes metadata (timestamps for video seeking)
     const epR = await fetch(`/api/datasets/${name}/episodes`);
@@ -2765,7 +2747,19 @@ document.getElementById('vizDatasetSelect').addEventListener('change', async fun
       div.dataset.ep = i;
       const epTasks = ep && ep.tasks ? (Array.isArray(ep.tasks) ? ep.tasks : [ep.tasks]) : [];
       const epTaskHtml = epTasks.map(t => { const c = vizTaskColorMap[t] || '#888'; return `<div style="font-size:0.68rem;color:${c};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t}</div>`; }).join('');
-      div.innerHTML = `<input type="checkbox" class="viz-ep-cb" data-ep="${i}" style="display:none;margin-right:6px;margin-top:2px" onclick="event.stopPropagation();vizUpdateDeleteBtn()"><div style="flex:1;min-width:0"><span>Episode ${i}</span><div class="ep-meta">${len} frames &middot; ${dur}s</div>${epTaskHtml}</div>`;
+      // Augmentation badge
+      let augBadge = '';
+      if (vizAugInfo && vizAugInfo.episodes) {
+        const aInfo = vizAugInfo.episodes.find(e => e.new_ep === i);
+        if (aInfo) {
+          if (aInfo.is_original) {
+            augBadge = '<span style="font-size:0.6rem;color:#34a853;margin-left:4px" title="Original copy (no augmentation)">original</span>';
+          } else {
+            augBadge = `<span style="font-size:0.6rem;color:#7b1fa2;margin-left:4px" title="Augmented from ep ${aInfo.source_ep}">augmented(ep${aInfo.source_ep})</span>`;
+          }
+        }
+      }
+      div.innerHTML = `<input type="checkbox" class="viz-ep-cb" data-ep="${i}" style="display:none;margin-right:6px;margin-top:2px" onclick="event.stopPropagation();vizUpdateDeleteBtn()"><div style="flex:1;min-width:0"><span>Episode ${i}${augBadge}</span><div class="ep-meta">${len} frames &middot; ${dur}s</div>${epTaskHtml}</div>`;
       div.addEventListener('click', () => {
         if (vizSelectMode) {
           const cb = div.querySelector('.viz-ep-cb');
@@ -3129,8 +3123,8 @@ async function vizShowAugment() {
             <div style="flex:1">
               <label class="form-label">Mode</label>
               <div style="display:flex;gap:4px">
-                <button class="btn-xs aug-mode-btn" id="augModeRandom" onclick="setAugMode('random')" style="background:#e8f0fe;color:#1a73e8;border:1px solid #90caf9;padding:4px 12px;cursor:pointer;border-radius:4px;font-size:0.8rem">Random</button>
-                <button class="btn-xs aug-mode-btn" id="augModeFix" onclick="setAugMode('fix')" style="background:#fff;color:#555;border:1px solid #d0d0d0;padding:4px 12px;cursor:pointer;border-radius:4px;font-size:0.8rem">Fix</button>
+                <button class="btn-xs aug-mode-btn" id="augModeRandom" onclick="setAugMode('random')" style="background:#e8f0fe;color:#1a73e8;border:1px solid #90caf9;padding:4px 12px">Random</button>
+                <button class="btn-xs aug-mode-btn" id="augModeFix" onclick="setAugMode('fix')" style="background:#fff;color:#555;border:1px solid #d0d0d0;padding:4px 12px">Fix</button>
               </div>
               <div style="font-size:0.72rem;color:#aaa;margin-top:2px" id="augModeDesc">Random source episode per augmented copy</div>
             </div>
@@ -3176,6 +3170,12 @@ async function vizShowAugment() {
                 <div style="display:flex;align-items:baseline;gap:4px"><label><input type="checkbox" id="augLightBlur"> Blur</label><span style="font-size:0.72rem;color:#aaa">— Gaussian blur (out-of-focus)</span></div>
               </div>
               <div id="augLightParams"></div>
+            </div>
+
+            <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;margin-bottom:8px">
+              <label style="font-weight:600;font-size:0.85rem"><input type="checkbox" id="augOcclusionEnabled"> Random Occlusion</label>
+              <div style="font-size:0.75rem;color:#999;margin:2px 0 4px 18px">Cover part of the image with a black rectangle: random per episode or adjustable in Fix mode</div>
+              <div id="augOcclusionParams"></div>
             </div>
 
             <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;margin-bottom:8px">
@@ -3231,13 +3231,13 @@ async function vizShowAugment() {
     window._augPreviewName = name;
     window._augTotalEps = totalEps;
     window._augMode = 'random';
-    _augPreviewUpdate();
     updateAugSummary(totalEps);
     renderAugParams();
+    _augPreviewUpdate();
 
     // Listen for changes on all augment controls
     const watchIds = ['augCamEnabled','augCamPersp','augCamAffine','augCamRot',
-      'augLightEnabled','augLightBright','augLightContrast','augLightSat','augLightJitter','augLightShadow','augLightNoise','augLightBlur',
+      'augLightEnabled','augLightBright','augLightContrast','augLightSat','augLightJitter','augLightShadow','augLightNoise','augLightBlur','augOcclusionEnabled',
       'augRobotEnabled','augRobotStart','augRobotOffset','augRobotJitter',
       'augLangEnabled','augLangSyn','augLangTypo','augIntensity'];
     watchIds.forEach(id => {
@@ -3295,6 +3295,7 @@ function updateAugSummary(totalEps) {
   const techs = [];
   if (document.getElementById('augCamEnabled')?.checked) techs.push('Camera Shift');
   if (document.getElementById('augLightEnabled')?.checked) techs.push('Light & Quality');
+  if (document.getElementById('augOcclusionEnabled')?.checked) techs.push('Random Occlusion');
   if (document.getElementById('augRobotEnabled')?.checked) techs.push('Robot Noise');
   if (document.getElementById('augLangEnabled')?.checked) techs.push('Language');
 
@@ -3339,11 +3340,11 @@ function renderAugParams() {
       if (mode==='random') {
         if (persp) h += rng('Perspective', (-0.05*s).toFixed(3), (0.05*s).toFixed(3));
         if (affine) { h += rng('Translate', (-0.04*s).toFixed(3), (0.04*s).toFixed(3)); h += rng('Scale', (1-0.05*s).toFixed(2), (1+0.05*s).toFixed(2)); h += rng('Shear', (-0.03*s).toFixed(3), (0.03*s).toFixed(3)); }
-        if (rot) h += rng('Rotation', (-4*s).toFixed(1), (4*s).toFixed(1), '\u00b0');
+        if (rot) h += rng('Rotation', (-4*s).toFixed(1), (4*s).toFixed(1), '°');
       } else {
         if (persp) h += sld('afPersp','Perspective', 0, 0.10, 0.005, (0.03*s).toFixed(3));
         if (affine) { h += sld('afTx','Translate X', -0.08, 0.08, 0.005, (0.02*s).toFixed(3)); h += sld('afTy','Translate Y', -0.08, 0.08, 0.005, (0.02*s).toFixed(3)); h += sld('afScale','Scale', 0.90, 1.10, 0.01, '1.00'); h += sld('afShear','Shear', -0.06, 0.06, 0.005, '0.000'); }
-        if (rot) h += sld('afAngle','Rotation', -8, 8, 0.5, (2*s).toFixed(1), '\u00b0');
+        if (rot) h += sld('afAngle','Rotation', -8, 8, 0.5, (2*s).toFixed(1), '°');
       }
     }
     camEl.innerHTML = h ? `<div style="${pstyle}">${h}</div>` : '';
@@ -3368,21 +3369,40 @@ function renderAugParams() {
           if (contrast) h += rng('Contrast', (1-0.25*s).toFixed(2), (1+0.25*s).toFixed(2));
           if (sat) h += rng('Saturation', (1-0.35*s).toFixed(2), (1+0.35*s).toFixed(2));
           if (jitter) h += rng('Hue shift', '-'+Math.round(8*s), '+'+Math.round(8*s));
-          if (shadow) h += rng('Shadow \u03b1', (0.15*s).toFixed(2), (0.4*s).toFixed(2));
-          if (noise) h += rng('Noise \u03c3', (4*s).toFixed(1), (12*s).toFixed(1));
-          if (blur) h += rng('Blur \u03c3', (0.4*s).toFixed(1), (1.2*s).toFixed(1));
+          if (shadow) h += rng('Shadow α', (0.15*s).toFixed(2), (0.4*s).toFixed(2));
+          if (noise) h += rng('Noise σ', (4*s).toFixed(1), (12*s).toFixed(1));
+          if (blur) h += rng('Blur σ', (0.4*s).toFixed(1), (1.2*s).toFixed(1));
         } else {
           if (bright) h += sld('afBright','Brightness', 0.50, 1.50, 0.01, (1+0.12*s).toFixed(2));
           if (contrast) h += sld('afContrast','Contrast', 0.50, 1.50, 0.01, (1+0.12*s).toFixed(2));
           if (sat) h += sld('afSat','Saturation', 0.30, 1.70, 0.01, (1+0.15*s).toFixed(2));
           if (jitter) h += sld('afHue','Hue shift', -16, 16, 1, Math.round(4*s));
-          if (shadow) h += sld('afShadowA','Shadow \u03b1', 0.0, 0.80, 0.05, (0.25*s).toFixed(2));
-          if (noise) h += sld('afNoiseS','Noise \u03c3', 0, 24, 0.5, (8*s).toFixed(1));
-          if (blur) h += sld('afBlurS','Blur \u03c3', 0.0, 2.4, 0.1, (0.8*s).toFixed(1));
+          if (shadow) h += sld('afShadowA','Shadow α', 0.0, 0.80, 0.05, (0.25*s).toFixed(2));
+          if (noise) h += sld('afNoiseS','Noise σ', 0, 24, 0.5, (8*s).toFixed(1));
+          if (blur) h += sld('afBlurS','Blur σ', 0.0, 2.4, 0.1, (0.8*s).toFixed(1));
         }
       }
     }
     lightEl.innerHTML = h ? `<div style="${pstyle}">${h}</div>` : '';
+  }
+
+  const occlusionEl = document.getElementById('augOcclusionParams');
+  if (occlusionEl) {
+    let h = '';
+    if (document.getElementById('augOcclusionEnabled')?.checked) {
+      if (mode === 'fix') {
+        const saved = id => document.getElementById(id)?.value;
+        h += sld('afOccX', 'Position X', 0, 100, 1, saved('afOccX') ?? 40, '%');
+        h += sld('afOccY', 'Position Y', 0, 100, 1, saved('afOccY') ?? 40, '%');
+        h += sld('afOccW', 'Width', 1, 100, 1, saved('afOccW') ?? 20, '%');
+        h += sld('afOccH', 'Height', 1, 100, 1, saved('afOccH') ?? 20, '%');
+        h += '<div>Position is measured from the top-left corner. The rectangle shifts inward at image edges to keep its full size.</div>';
+      } else {
+        h += rng('Width / height', (10*s).toFixed(1), (30*s).toFixed(1), '% of image');
+        h += '<div>Random position and size per episode; stays fixed throughout the clip.</div>';
+      }
+    }
+    occlusionEl.innerHTML = h ? `<div style="${pstyle}">${h}</div>` : '';
   }
 
   // Robot
@@ -3397,12 +3417,12 @@ function renderAugParams() {
       if (trim||offset||jit) {
         if (mode==='random') {
           if (trim) h += rng('Start trim', '1', Math.max(1,Math.round(30*0.12*s)).toString(), ' frames');
-          if (offset) h += rng('Offset \u03c3', '0', (1.5*s).toFixed(1), '\u00b0');
-          if (jit) h += rng('Jitter \u03c3', (0.3*s).toFixed(1), (1.0*s).toFixed(1));
+          if (offset) h += rng('Offset σ', '0', (1.5*s).toFixed(1), '°');
+          if (jit) h += rng('Jitter σ', (0.3*s).toFixed(1), (1.0*s).toFixed(1));
         } else {
           if (trim) h += sld('afTrim','Trim', 0, 30, 1, Math.min(Math.round(3*s), 20), ' frames');
-          if (offset) h += sld('afOffsetS','Offset \u03c3', 0.0, 3.0, 0.1, (1.0*s).toFixed(1), '\u00b0');
-          if (jit) h += sld('afJitterS','Jitter \u03c3', 0.0, 2.0, 0.1, (0.5*s).toFixed(1));
+          if (offset) h += sld('afOffsetS','Offset σ', 0.0, 3.0, 0.1, (1.0*s).toFixed(1), '°');
+          if (jit) h += sld('afJitterS','Jitter σ', 0.0, 2.0, 0.1, (0.5*s).toFixed(1));
         }
       }
     }
@@ -3415,7 +3435,7 @@ function getFixedParams() {
   const rv = id => { const el = document.getElementById(id); return el ? parseFloat(el.value) : null; };
   return {
     camera: { persp_mag: rv('afPersp'), tx: rv('afTx'), ty: rv('afTy'), shear: rv('afShear'), scale: rv('afScale'), angle: rv('afAngle') },
-    light: { brightness: rv('afBright'), contrast: rv('afContrast'), saturation: rv('afSat'), hue: rv('afHue'), sat_off: rv('afSatOff'), shadow_a: rv('afShadowA'), noise_s: rv('afNoiseS'), blur_s: rv('afBlurS') },
+    light: { brightness: rv('afBright'), contrast: rv('afContrast'), saturation: rv('afSat'), hue: rv('afHue'), sat_off: rv('afSatOff'), shadow_a: rv('afShadowA'), noise_s: rv('afNoiseS'), blur_s: rv('afBlurS'), occlusion: document.getElementById('augOcclusionEnabled')?.checked ? [rv('afOccX') / 100, rv('afOccY') / 100, rv('afOccW') / 100, rv('afOccH') / 100] : null },
     robot: { trim: rv('afTrim'), offset_sigma: rv('afOffsetS'), jitter_s: rv('afJitterS') },
   };
 }
@@ -3436,6 +3456,7 @@ async function _augPreviewUpdate() {
 
   const intensity = parseInt(document.getElementById('augIntensity')?.value || 3);
   const techniques = {
+    occlusion: { enabled: document.getElementById('augOcclusionEnabled')?.checked },
     camera: {
       enabled: document.getElementById('augCamEnabled')?.checked,
       perspective: document.getElementById('augCamPersp')?.checked,
@@ -3499,6 +3520,7 @@ async function vizDoAugment(srcName) {
 
   const ck = id => document.getElementById(id)?.checked || false;
   const techniques = {
+    occlusion: {enabled: ck('augOcclusionEnabled')},
     camera_shift: {enabled: ck('augCamEnabled'), perspective: ck('augCamPersp'), affine: ck('augCamAffine'), rotation: ck('augCamRot')},
     light_quality: {enabled: ck('augLightEnabled'), brightness: ck('augLightBright'), contrast: ck('augLightContrast'), saturation: ck('augLightSat'), color_jitter: ck('augLightJitter'), shadow: ck('augLightShadow'), noise: ck('augLightNoise'), blur: ck('augLightBlur')},
     robot_noise: {enabled: ck('augRobotEnabled'), random_start: ck('augRobotStart'), initial_noise: ck('augRobotOffset'), trajectory_jitter: ck('augRobotJitter')},
@@ -5326,7 +5348,7 @@ async function vizLoadEpisode() {
   vids.innerHTML = '';
 
   // Check if this episode has augmentation info
-  const augEp = vizAugInfo && vizAugInfo.episodes ? vizAugInfo.episodes[ep] : null;
+  const augEp = vizAugInfo && vizAugInfo.episodes ? vizAugInfo.episodes.find(e => e.new_ep === ep) : null;
   const showOriginal = augEp && !augEp.is_original && augEp.source_video;
 
   vizCurrentCameras.forEach(cam => {
@@ -5350,7 +5372,7 @@ async function vizLoadEpisode() {
           <div style="font-size:0.82rem;font-weight:600;color:#555;margin-bottom:4px">${label}</div>
           <div style="display:flex;gap:4px">
             <div style="flex:1">
-              <div style="font-size:0.7rem;color:#888;margin-bottom:2px">Original (ep ${augEp.source_episode})</div>
+              <div style="font-size:0.7rem;color:#888;margin-bottom:2px">Original (ep ${augEp.source_ep})</div>
               <video muted preload="auto" class="viz-video" data-ep-start="${sv.from_timestamp}" data-ep-end="${sv.to_timestamp}" style="width:100%;border-radius:6px;border:1px solid #c8e6c9;background:#000" src="${srcPath}"></video>
             </div>
             <div style="flex:1">
@@ -5375,15 +5397,15 @@ async function vizLoadEpisode() {
     augDetailEl.id = 'vizAugDetails';
     vids.parentNode.insertBefore(augDetailEl, vids.nextSibling);
   }
-  if (augEp && !augEp.is_original && augEp.params) {
-    const p = augEp.params;
+  if (augEp && !augEp.is_original) {
+    const p = augEp;
     let details = [];
     if (p.camera) {
       const cd = p.camera;
       let parts = [];
-      if (cd.rotation) parts.push(`rotation: ${cd.rotation}deg`);
-      if (cd.perspective) parts.push('perspective warp');
-      if (cd.translate) parts.push(`translate: [${cd.translate.join(', ')}]`);
+      if (cd.angle) parts.push(`rotation: ${cd.angle}deg`);
+      if (cd.persp) parts.push('perspective warp');
+      if (cd.tx != null || cd.ty != null) parts.push(`translate: [${cd.tx ?? 0}, ${cd.ty ?? 0}]`);
       if (cd.scale) parts.push(`scale: ${cd.scale}`);
       if (cd.shear) parts.push(`shear: ${cd.shear}`);
       details.push(`<span style="color:#1565c0;font-weight:600">Camera:</span> ${parts.join(', ')}`);
@@ -5394,18 +5416,19 @@ async function vizLoadEpisode() {
       if (ld.brightness) parts.push(`brightness: ${ld.brightness}`);
       if (ld.contrast) parts.push(`contrast: ${ld.contrast}`);
       if (ld.saturation) parts.push(`saturation: ${ld.saturation}`);
-      if (ld.color_jitter) parts.push('color jitter');
-      if (ld.shadow) parts.push(`shadow: ${ld.shadow}`);
-      if (ld.noise_sigma) parts.push(`noise: ${ld.noise_sigma}`);
-      if (ld.blur_kernel) parts.push(`blur: ${ld.blur_kernel}px`);
+      if (ld.hue != null) parts.push(`hue: ${ld.hue}, saturation offset: ${ld.sat_off ?? 0}, value offset: ${ld.val_off ?? 0}`);
+      if (ld.shadow_a != null) parts.push(`shadow: ${ld.shadow_a} (${ld.shadow_dir})`);
+      if (ld.noise_s) parts.push(`noise: ${ld.noise_s}`);
+      if (ld.blur_k) parts.push(`blur: ${ld.blur_k}px`);
+      if (ld.occlusion) parts.push(`occlusion (x, y, width, height): ${ld.occlusion.map(v => (v * 100).toFixed(1) + '%').join(', ')}`);
       details.push(`<span style="color:#e65100;font-weight:600">Light:</span> ${parts.join(', ')}`);
     }
     if (p.robot) {
       const rd = p.robot;
       let parts = [];
-      if (rd.trim_frames) parts.push(`trim: ${rd.trim_frames} frames`);
-      if (rd.initial_noise) parts.push(`initial noise: [${rd.initial_noise.join(', ')}]`);
-      if (rd.jitter_sigma) parts.push(`jitter: ${rd.jitter_sigma}`);
+      if (rd.trim) parts.push(`trim: ${rd.trim} frames`);
+      if (rd.joint_offset) parts.push(`initial noise: [${rd.joint_offset.join(', ')}]`);
+      if (rd.jitter_s) parts.push(`jitter: ${rd.jitter_s}`);
       details.push(`<span style="color:#2e7d32;font-weight:600">Robot:</span> ${parts.join(', ')}`);
     }
     if (p.language) {
@@ -5413,13 +5436,13 @@ async function vizLoadEpisode() {
     }
     augDetailEl.innerHTML = `
       <div style="margin-top:8px;padding:10px 14px;background:#f5f5f5;border-radius:8px;border:1px solid #e0e0e0;font-size:0.8rem;line-height:1.7">
-        <div style="font-weight:700;color:#333;margin-bottom:4px">Augmentation Details (copy ${augEp.copy_index}, source ep ${augEp.source_episode})</div>
+        <div style="font-weight:700;color:#333;margin-bottom:4px">Augmentation Details (source ep ${augEp.source_ep})</div>
         ${details.join('<br>')}
       </div>`;
   } else if (augEp && augEp.is_original) {
     augDetailEl.innerHTML = `
       <div style="margin-top:8px;padding:8px 14px;background:#e8f5e9;border-radius:8px;border:1px solid #c8e6c9;font-size:0.8rem;color:#2e7d32">
-        Original episode (copy 0, source ep ${augEp.source_episode}) — no augmentation applied
+        Original episode (source ep ${augEp.source_ep}) — no augmentation applied
       </div>`;
   } else {
     augDetailEl.innerHTML = '';
@@ -5961,25 +5984,7 @@ async function evalLoadConfig() {
       if (c.cam_count != null) document.getElementById('evalCamCount').value = c.cam_count;
       if (c.chunk_size != null) document.getElementById('evalChunkSize').value = c.chunk_size;
       if (c.n_action_steps != null) document.getElementById('evalNActionSteps').value = c.n_action_steps;
-      if (c.challenge_env) {
-        const ce = c.challenge_env;
-        document.getElementById('evalChallengeEnabled').checked = !!ce.enabled;
-        if (ce.intensity != null) document.getElementById('evalChallengeIntensity').value = ce.intensity;
-        if (ce.camera) {
-          if (ce.camera.perspective != null) document.getElementById('evalChCamPersp').checked = ce.camera.perspective;
-          if (ce.camera.affine != null) document.getElementById('evalChCamAffine').checked = ce.camera.affine;
-          if (ce.camera.rotation != null) document.getElementById('evalChCamRot').checked = ce.camera.rotation;
-        }
-        if (ce.light) {
-          if (ce.light.brightness != null) document.getElementById('evalChLightBright').checked = ce.light.brightness;
-          if (ce.light.contrast != null) document.getElementById('evalChLightContrast').checked = ce.light.contrast;
-          if (ce.light.saturation != null) document.getElementById('evalChLightSat').checked = ce.light.saturation;
-          if (ce.light.color_jitter != null) document.getElementById('evalChLightJitter').checked = ce.light.color_jitter;
-          if (ce.light.shadow != null) document.getElementById('evalChLightShadow').checked = ce.light.shadow;
-          if (ce.light.noise != null) document.getElementById('evalChLightNoise').checked = ce.light.noise;
-          if (ce.light.blur != null) document.getElementById('evalChLightBlur').checked = ce.light.blur;
-        }
-      }
+      if (c.challenge_env) evalSetChallengeConfig(c.challenge_env);
     } else {
       document.getElementById('evalTask').value = cfg.default_instruction || '';
     }
@@ -6001,29 +6006,13 @@ function _evalGetCurrentConfig() {
     record_video: document.getElementById('evalRecordVideo').checked,
     chunk_size: parseInt(document.getElementById('evalChunkSize').value) || null,
     n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || null,
-    challenge_env: {
-      enabled: document.getElementById('evalChallengeEnabled').checked,
-      intensity: parseInt(document.getElementById('evalChallengeIntensity').value) || 3,
-      camera: {
-        perspective: document.getElementById('evalChCamPersp').checked,
-        affine: document.getElementById('evalChCamAffine').checked,
-        rotation: document.getElementById('evalChCamRot').checked,
-      },
-      light: {
-        brightness: document.getElementById('evalChLightBright').checked,
-        contrast: document.getElementById('evalChLightContrast').checked,
-        saturation: document.getElementById('evalChLightSat').checked,
-        color_jitter: document.getElementById('evalChLightJitter').checked,
-        shadow: document.getElementById('evalChLightShadow').checked,
-        noise: document.getElementById('evalChLightNoise').checked,
-        blur: document.getElementById('evalChLightBlur').checked,
-      },
-    },
+    challenge_env: evalGetChallengeConfig(),
   };
 }
 
 let _evalConfigSaveTimer = null;
 function evalConfigChanged() {
+  evalScheduleChallengePreview();
   const st = document.getElementById('evalConfigSaveStatus');
   const config = _evalGetCurrentConfig();
 
@@ -6560,28 +6549,8 @@ function _evalBuildBody() {
     chunk_size: parseInt(document.getElementById('evalChunkSize').value) || 0,
     n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || 0,
   };
-  if (document.getElementById('evalChallengeEnabled').checked) {
-    const camEnabled = document.getElementById('evalChCamEnabled').checked;
-    const lightEnabled = document.getElementById('evalChLightEnabled').checked;
-    body.challenge_env = {
-      enabled: true,
-      intensity: parseInt(document.getElementById('evalChallengeIntensity').value) || 3,
-      camera: camEnabled ? {
-        perspective: document.getElementById('evalChCamPersp').checked,
-        affine: document.getElementById('evalChCamAffine').checked,
-        rotation: document.getElementById('evalChCamRot').checked,
-      } : {},
-      light: lightEnabled ? {
-        brightness: document.getElementById('evalChLightBright').checked,
-        contrast: document.getElementById('evalChLightContrast').checked,
-        saturation: document.getElementById('evalChLightSat').checked,
-        color_jitter: document.getElementById('evalChLightJitter').checked,
-        shadow: document.getElementById('evalChLightShadow').checked,
-        noise: document.getElementById('evalChLightNoise').checked,
-        blur: document.getElementById('evalChLightBlur').checked,
-      } : {},
-    };
-  }
+  const challenge = evalGetChallengeConfig();
+  if (challenge.enabled) body.challenge_env = challenge;
   return body;
 }
 
@@ -6770,7 +6739,7 @@ async function evalRecordResult(result) {
       height: parseInt(document.getElementById('evalHeight').value) || 240,
       chunk_size: parseInt(document.getElementById('evalChunkSize').value) || null,
       n_action_steps: parseInt(document.getElementById('evalNActionSteps').value) || null,
-      challenge_env: chEnabled ? { enabled: true, intensity: parseInt(document.getElementById('evalChallengeIntensity').value) || 3 } : null,
+      challenge_env: chEnabled ? evalGetChallengeConfig() : null,
     },
   };
   if (evalEpAugData) {
@@ -6857,7 +6826,7 @@ function evalRenderResults() {
           ['N Steps', c.n_action_steps || 'default'],
         ].filter(([,v]) => v !== '-');
         if (c.challenge_env && c.challenge_env.enabled) {
-          entries.push(['Challenge', `I=${c.challenge_env.intensity||3}`]);
+          entries.push(['Challenge', `${c.challenge_env.mode === 'fix' ? 'Fix' : 'Random'} · I=${c.challenge_env.intensity||3}`]);
         }
         configHtml = `<div style="font-size:0.68rem;color:#888;margin-bottom:6px">${entries.map(([k,v]) => `<span style="margin-right:10px"><strong>${k}:</strong> ${v}</span>`).join('')}</div>`;
       }
@@ -6865,7 +6834,7 @@ function evalRenderResults() {
       if (r.aug_params) {
         const p = r.aug_params;
         // Support both flat (legacy) and nested {camera, light} format
-        if (p.camera || p.light) {
+        if (p.camera || p.light || p.robot) {
           const parts = [];
           if (p.camera) {
             const cam = p.camera;
@@ -6885,7 +6854,16 @@ function evalRenderResults() {
             if ('shadow_a' in lt) ltParts.push(`Shadow:${lt.shadow_dir} ${lt.shadow_a.toFixed(2)}`);
             if ('noise_s' in lt) ltParts.push(`Noise:${lt.noise_s.toFixed(1)}`);
             if ('blur_k' in lt) ltParts.push(`Blur:${lt.blur_k}/${lt.blur_s.toFixed(1)}`);
+            if (lt.occlusion) ltParts.push(`Occlusion (x/y/w/h): ${lt.occlusion.map(v => (v*100).toFixed(1)+'%').join('/')}`);
             if (ltParts.length) parts.push(`<span style="color:#e65100;font-weight:600">Light:</span> ${ltParts.join(', ')}`);
+          }
+          if (p.robot) {
+            const rb = p.robot;
+            const robotParts = [];
+            if ('trim' in rb) robotParts.push(`Start trim: ${rb.trim} frames`);
+            if (rb.joint_offset) robotParts.push(`Joint offset: ${rb.joint_offset.map(v => v.toFixed(2)).join(', ')}`);
+            if ('jitter_s' in rb) robotParts.push(`Jitter sigma: ${rb.jitter_s.toFixed(2)}`);
+            if (robotParts.length) parts.push(`<span style="color:#2e7d32;font-weight:600">Robot:</span> ${robotParts.join('; ')}`);
           }
           const seedInfo = r.aug_seed != null ? `<span style="color:#888;font-size:0.68rem;float:right">seed: ${r.aug_seed}</span>` : '';
           paramHtml = `<div style="font-size:0.72rem;color:#555;background:#f5f0fa;border:1px solid #e0d0f0;border-radius:6px;padding:6px 10px;margin-bottom:8px;line-height:1.8">${seedInfo}${parts.join('<br>')}</div>`;
@@ -6942,7 +6920,7 @@ function evalRenderResults() {
         <span style="font-size:0.8rem;font-weight:600;color:#444;width:46px;flex-shrink:0">#${r.run}</span>
         <span style="font-size:0.7rem;color:${color};font-weight:500;flex-shrink:0">${r.result}</span>
         ${r.video_filename?'<span style="font-size:0.7rem;color:#ff9800;flex-shrink:0" title="Video recorded">&#9658;</span>':''}
-        ${r.aug_params&&(r.aug_params.camera||r.aug_params.light)?'<span style="font-size:0.62rem;color:#6a1b9a;background:#f3e5f5;border-radius:3px;padding:1px 4px;flex-shrink:0" title="Challenge Environment">CH</span>':''}
+        ${r.aug_params&&(r.aug_params.camera||r.aug_params.light||r.aug_params.robot)?'<span style="font-size:0.62rem;color:#6a1b9a;background:#f3e5f5;border-radius:3px;padding:1px 4px;flex-shrink:0" title="Challenge Environment">CH</span>':''}
         <span style="flex:1"></span>
         ${hasDetail?`<span style="font-size:0.65rem;color:#aaa;flex-shrink:0" id="evalDetailBtn_${i}">&#9660; detail</span>`:''}
         <span style="font-size:0.7rem;color:#aaa;flex-shrink:0">${time}</span>
