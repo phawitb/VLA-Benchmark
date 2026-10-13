@@ -28,6 +28,25 @@
   .page { display: none; max-width: 960px; }
   .page.active { display: block; }
 
+  /* Training and Evaluate keep each column inside its own scroll viewport. */
+  .main:has(#page-training.active, #page-evaluate.active) {
+    height:100vh;height:100dvh;min-height:0;overflow:hidden;
+  }
+  .main-content:has(#page-training.active, #page-evaluate.active) {
+    height:100%;min-height:0;overflow:hidden;display:flex;flex-direction:column;
+  }
+  #page-training.active, #page-evaluate.active {
+    display:flex;flex-direction:column;flex:1;min-height:0;
+  }
+  #page-training > .page-title, #page-evaluate > .page-title,
+  #evalInnerTabs { flex-shrink:0; }
+  .workspace-columns { display:flex;gap:16px;align-items:stretch;flex:1;min-height:0;overflow:hidden; }
+  .workspace-column { min-height:0;overflow-y:auto;overscroll-behavior-y:contain;scrollbar-gutter:stable;padding-right:6px; }
+  .workspace-center { flex:1;min-width:0; }
+  .workspace-column > .config-card { flex-shrink:0; }
+  #evalTabRun.active { display:flex;flex-direction:column;flex:1;min-height:0; }
+  #evalTabResults.active { flex:1;min-height:0;overflow-y:auto;overscroll-behavior-y:contain; }
+
   /* Right panel — always visible */
   .right-panel {
     width: 320px; flex-shrink: 0; background: #fff; border-left: 1px solid #e0e0e0;
@@ -847,9 +866,9 @@ pip install lerobot</pre>
   <div class="page" id="page-training" style="max-width:none">
     <div class="page-title"><span>Remote</span> Training</div>
 
-    <div style="display:flex;gap:16px;align-items:flex-start">
+    <div class="workspace-columns">
       <!-- Main area (tabs + content) -->
-      <div style="flex:1;min-width:0">
+      <div class="workspace-column workspace-center">
         <div class="inner-tabs">
           <button class="inner-tab active" data-inner="train-new">New Training</button>
           <button class="inner-tab" data-inner="train-history">History</button>
@@ -1030,7 +1049,7 @@ pip install lerobot</pre>
       <!-- Divider between main and sidebar -->
       <div class="panel-divider" id="dividerTraining"></div>
       <!-- Column 3: Persistent sidebar (always visible) -->
-      <div id="trainRightCol" style="width:320px;flex-shrink:0;position:sticky;top:16px">
+      <div id="trainRightCol" class="workspace-column" style="width:320px;flex-shrink:0">
         <!-- GPU Server SSH Status -->
         <div class="config-card" style="margin-bottom:14px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -1096,9 +1115,9 @@ pip install lerobot</pre>
 
     <!-- Tab: Run (existing content) -->
     <div class="inner-page active" id="evalTabRun" data-evaltab="eval-run">
-    <div style="display:flex;gap:16px;align-items:flex-start">
+    <div class="workspace-columns">
       <!-- Main area -->
-      <div style="flex:1;min-width:0">
+      <div class="workspace-column workspace-center">
 
         <!-- Model selection -->
         <div class="config-card" style="margin-bottom:14px">
@@ -1178,25 +1197,25 @@ pip install lerobot</pre>
             </div>
           </div>
           <!-- Challenge Environment -->
-          <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer" onclick="document.getElementById('evalChallengeBody').style.display=document.getElementById('evalChallengeBody').style.display==='none'?'':'none';this.querySelector('.chevron').textContent=document.getElementById('evalChallengeBody').style.display==='none'?'\u25B6':'\u25BC';if(document.getElementById('evalChallengeBody').style.display!=='none')evalLoadChallengePreviewSources()">
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="event.stopPropagation()">
-                <input type="checkbox" id="evalChallengeEnabled" onchange="evalConfigChanged()">
-                <span style="font-size:0.85rem;font-weight:600;color:#6a1b9a">Challenge Environment</span>
-              </label>
-              <span style="font-size:0.72rem;color:#aaa">Simulate challenging conditions during inference</span>
-              <span class="chevron" style="font-size:0.7rem;color:#aaa;margin-left:auto">&#9654;</span>
-            </div>
-            <div id="evalChallengeBody" style="display:none"></div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="evalChallengeEnabled" onchange="evalChallengeChanged()">
+              <span style="font-size:0.85rem;font-weight:600;color:#6a1b9a">Challenge Environment</span>
+            </label>
+            <span style="font-size:0.72rem;color:#aaa">Simulate challenging conditions during inference</span>
+            <button type="button" class="btn btn-sm" onclick="evalOpenChallengeSetup()" style="margin-left:auto;background:#6a1b9a">Setup &amp; Preview</button>
           </div>
           <!-- Reset Position -->
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
               <span style="font-size:0.85rem;font-weight:600;color:#333">Reset Position</span>
+              <button type="button" class="btn btn-sm" id="evalTorqueOnBtn" onclick="evalSetTorque(true)" style="background:#34a853;font-size:0.72rem;padding:2px 10px">Torque On</button>
+              <button type="button" class="btn btn-sm btn-danger" id="evalTorqueOffBtn" onclick="evalSetTorque(false)" style="font-size:0.72rem;padding:2px 10px">Torque Off</button>
               <button class="btn btn-sm" onclick="evalCaptureResetPos()" style="background:#1a73e8;font-size:0.72rem;padding:2px 10px">Capture Current</button>
               <button class="btn btn-sm" onclick="evalMoveToReset()" style="background:#ff9800;font-size:0.72rem;padding:2px 10px">Move To Reset</button>
               <button class="btn btn-sm btn-danger" onclick="evalClearResetPos()" style="font-size:0.72rem;padding:2px 10px">Clear</button>
             </div>
+            <div id="evalTorqueStatus" role="status" style="font-size:0.75rem;color:#888;margin-bottom:8px"></div>
             <div id="evalResetPosDisplay" style="font-family:'SF Mono','Menlo',monospace;font-size:0.78rem;color:#888;background:#f8f8f8;border-radius:6px;padding:8px 10px;min-height:24px">
               No reset position saved. Robot will start from current position.
             </div>
@@ -1292,7 +1311,7 @@ pip install lerobot</pre>
       <!-- Divider -->
       <div class="panel-divider" id="dividerEval"></div>
       <!-- Sidebar: Session history + Log -->
-      <div id="evalRightCol" style="width:350px;flex-shrink:0;position:sticky;top:16px;display:flex;flex-direction:column;gap:14px">
+      <div id="evalRightCol" class="workspace-column" style="width:350px;flex-shrink:0;display:flex;flex-direction:column;gap:14px">
         <div class="config-card">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <h3 style="margin:0;font-size:0.9rem">Sessions</h3>
@@ -1439,6 +1458,40 @@ pip install lerobot</pre>
   <div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><div id="modalBody"></div></div>
 </div>
 
+
+<dialog id="evalChallengeDialog" aria-labelledby="evalChallengeDialogTitle" onclose="evalChallengeClosed()" onclick="if(event.target===this)evalCloseChallengeSetup()" style="width:min(1200px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:90vh;padding:0;border:0;border-radius:14px;box-shadow:0 20px 70px #0005;overflow:hidden">
+  <div style="display:flex;flex-direction:column;max-height:90vh">
+    <header style="display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid #e0e0e0;flex-shrink:0">
+      <h2 id="evalChallengeDialogTitle" style="margin:0;font-size:1.1rem;color:#6a1b9a">Challenge Environment</h2>
+      <label style="display:flex;align-items:center;gap:5px;font-size:0.8rem;margin-left:auto"><input type="checkbox" id="evalChallengeDialogEnabled" onchange="document.getElementById('evalChallengeEnabled').checked=this.checked;evalChallengeChanged()"> Enabled</label>
+      <button type="button" class="btn btn-sm btn-ghost" aria-label="Close Challenge Environment" onclick="evalCloseChallengeSetup()">&times;</button>
+    </header>
+    <div id="evalChallengeBody" style="display:none;overflow-y:auto;padding:20px 22px;min-height:0"></div>
+    <footer style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 22px;border-top:1px solid #e0e0e0;flex-shrink:0">
+      <span style="font-size:0.75rem;color:#888">Changes are saved automatically.</span>
+      <button type="button" class="btn btn-sm" style="background:#6a1b9a" onclick="evalCloseChallengeSetup()">Done</button>
+    </footer>
+  </div>
+</dialog>
+<style>
+  #evalChallengeDialog { position:fixed;inset:0;margin:auto; }
+  .eval-challenge-mode { border:1px solid #d0d0d0;padding:4px 12px; }
+  .eval-challenge-params { margin-top:6px;padding:6px 10px;background:#eef6ff;border-radius:4px;font-size:0.72rem;color:#555;line-height:1.9; }
+  .eval-challenge-slider { display:flex;align-items:center;gap:4px;margin-bottom:1px; }
+  .eval-challenge-slider-label { flex:0 0 110px;color:#888;line-height:1.4; }
+  .eval-challenge-slider input[type="range"] { flex:1;min-width:0;width:100%;height:12px; }
+  .eval-challenge-slider output { min-width:38px;text-align:right;font-family:'SF Mono',monospace;font-size:0.72rem; }
+  #evalChallengeDialog input[type="range"] { accent-color:#1a73e8; }
+  #evalChallengeDialog::backdrop { background:rgba(20,15,30,.48); }
+  .eval-challenge-layout { display:grid;grid-template-columns:minmax(280px,.9fr) minmax(0,1.1fr);gap:24px;align-items:start; }
+  .eval-challenge-settings, .eval-challenge-preview { min-width:0;max-height:calc(90vh - 170px);overflow-y:auto;padding-right:6px; }
+  .eval-challenge-preview { border-left:1px solid #e0e0e0;padding-left:20px; }
+  @media (max-width:760px) {
+    .eval-challenge-layout { grid-template-columns:minmax(0,1fr);gap:20px; }
+    .eval-challenge-settings, .eval-challenge-preview { max-height:none;overflow:visible;padding-right:0; }
+    .eval-challenge-preview { border-left:0;border-top:1px solid #e0e0e0;padding:16px 0 0; }
+  }
+</style>
 
 <script src="/static/eval_challenge.js"></script>
 <script>
@@ -6080,6 +6133,29 @@ function evalUpdateTargetRuns() {
   }).catch(() => {});
 }
 
+
+async function evalSetTorque(enabled) {
+  const buttons = ['evalTorqueOnBtn', 'evalTorqueOffBtn'].map(id => document.getElementById(id));
+  const status = document.getElementById('evalTorqueStatus');
+  buttons.forEach(button => button.disabled = true);
+  status.style.color = '#888';
+  status.textContent = enabled ? 'Enabling torque…' : 'Disabling torque…';
+  try {
+    const response = await fetch('/api/eval/torque', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled}),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || 'Torque command failed');
+    status.style.color = '#34a853';
+    status.textContent = enabled ? 'Torque On applied — holding current position.' : 'Torque Off applied — arm can be positioned by hand.';
+  } catch (error) {
+    status.style.color = '#d93025';
+    status.textContent = error.message;
+  } finally {
+    buttons.forEach(button => button.disabled = false);
+  }
+}
 
 async function evalLoadResetPos() {
   try {

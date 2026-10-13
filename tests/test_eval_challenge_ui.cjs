@@ -85,3 +85,23 @@ test('Preview displays useful errors and ignores stale responses',async()=>{
   assert.match(doc.getElementById('evalChallengePreviewStatus').textContent,/No readable video frames/);
   assert.doesNotMatch(doc.getElementById('evalChallengePreviewGrid').innerHTML,/OLD/);
 });
+
+test('Setup opens a modal and retains Fix settings when closed and reopened',()=>{
+  const {c,doc}=setup();
+  const dialog=doc.getElementById('evalChallengeDialog');
+  dialog.showModal=()=>{dialog.open=true;};
+  dialog.close=()=>{dialog.open=false;c.evalChallengeClosed();};
+  let previews=0;
+  c.evalLoadChallengePreviewSources=()=>{previews++;};
+  c.evalSetChallengeConfig({enabled:true,mode:'fix',fixed_params:{camera:{angle:6}}});
+  c.evalOpenChallengeSetup();
+  assert.equal(dialog.open,true);
+  assert.equal(doc.getElementById('evalChallengeBody').style.display,'');
+  c.evalCloseChallengeSetup();
+  assert.equal(dialog.open,false);
+  assert.equal(doc.getElementById('evalChallengeBody').style.display,'none');
+  c.evalOpenChallengeSetup();
+  assert.equal(c.evalGetChallengeConfig().fixed_params.camera.angle,6);
+  assert.equal(c.evalGetChallengeConfig().mode,'fix');
+  assert.equal(previews,2);
+});

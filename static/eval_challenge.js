@@ -44,26 +44,45 @@ const evalChallengeFields = [
 function evalRenderChallenge() {
   const body = document.getElementById('evalChallengeBody');
   body.innerHTML = `
-    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <label>Mode <select id="evalChallengeMode" class="form-input" style="width:110px" onchange="evalChallengeChanged()"><option value="random">Random</option><option value="fix">Fix</option></select></label>
-      <label id="evalChallengeIntensityRow">Intensity (1–5) <input type="range" id="evalChallengeIntensity" min="1" max="5" value="3" oninput="evalChallengeChanged()"></label>
+    <div class="eval-challenge-layout">
+    <section class="eval-challenge-settings" aria-label="Challenge settings">
+    <h3 style="margin:0 0 12px;font-size:0.9rem;color:#6a1b9a">Settings</h3>
+    <div style="display:flex;gap:10px;align-items:end;margin-bottom:10px">
+      <div style="flex:1">
+        <label class="form-label">Mode</label>
+        <input type="hidden" id="evalChallengeMode" value="random">
+        <div style="display:flex;gap:4px">
+          <button type="button" class="btn-xs eval-challenge-mode" id="evalChallengeModeRandom" onclick="evalSetChallengeMode('random')">Random</button>
+          <button type="button" class="btn-xs eval-challenge-mode" id="evalChallengeModeFix" onclick="evalSetChallengeMode('fix')">Fix</button>
+        </div>
+      </div>
+      <div id="evalChallengeIntensityRow" style="flex:1">
+        <label class="form-label" for="evalChallengeIntensity">Intensity (1–5): <output id="evalChallengeIntensityValue">3</output></label>
+        <input type="range" id="evalChallengeIntensity" min="1" max="5" value="3" style="width:100%" oninput="evalChallengeChanged()">
+        <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:#999"><span>Subtle</span><span>Strong</span></div>
+      </div>
     </div>
-    <div id="evalChallengeModeHelp" style="font-size:0.75rem;color:#888;margin-bottom:10px"></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+    <div id="evalChallengeModeHelp" style="background:#f0f0f0;border-radius:6px;padding:8px 12px;font-size:0.75rem;color:#666;line-height:1.6;margin-bottom:12px"></div>
+    <label class="form-label">Techniques</label>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:8px">
     ${Object.entries(evalChallengeGroups).map(([group, spec]) => `
       <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px">
         <label style="font-weight:600;font-size:0.82rem"><input type="checkbox" id="${spec.id}" ${spec.enabled?'checked':''} onchange="evalChallengeChanged()"> ${spec.title}</label>
         ${spec.options.map(([,label,id,checked]) => `<div style="font-size:0.8rem;padding-left:18px;margin-top:4px"><label><input type="checkbox" id="${id}" ${checked?'checked':''} onchange="evalChallengeChanged()"> ${label}</label></div>`).join('')}
         ${group==='robot'?'<p style="font-size:0.72rem;color:#888">Trim skips initial commands. Joint noise affects observations and outgoing arm commands; the gripper stays unchanged.</p>':''}
         ${group==='occlusion'?'<p style="font-size:0.72rem;color:#888">Black rectangle with a stable position and size throughout each episode.</p>':''}
+        <div class="eval-challenge-params" id="evalChallengeParams_${group}">
         ${evalChallengeFields.filter(f=>f[0]===group).map(([g,key,label,min,max,step,value,tech])=>`
-          <label data-challenge-field="${g}" data-technique="${tech}" style="font-size:0.75rem;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px">${label}
-            <input id="evalFix_${g}_${key}" aria-label="${spec.title}: ${label}" type="number" min="${min}" max="${max}" step="${step}" value="${value}" style="width:85px;padding:4px" onchange="evalChallengeChanged()">
+          <label data-challenge-field="${g}" data-technique="${tech}" class="eval-challenge-slider"><span class="eval-challenge-slider-label">${label}:</span>
+            <input id="evalFix_${g}_${key}" aria-label="${spec.title}: ${label}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" oninput="evalChallengeChanged()">
+            <output id="evalFix_${g}_${key}Value" for="evalFix_${g}_${key}">${value}</output>
           </label>`).join('')}
         ${group==='light'?'<label data-challenge-field="light" data-technique="shadow" style="font-size:0.75rem;display:flex;justify-content:space-between;margin-top:6px">Shadow direction <select id="evalFix_light_shadow_dir" onchange="evalChallengeChanged()"><option>left</option><option>right</option><option>top</option><option>bottom</option></select></label>':''}
+        </div>
       </div>`).join('')}
     </div>
-    <section style="margin-top:16px;border-top:1px solid #ddd;padding-top:12px">
+    </section>
+    <section class="eval-challenge-preview" aria-label="Challenge preview">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
         <strong style="font-size:0.85rem;color:#6a1b9a">Preview (up to 5 episodes)</strong>
         <label style="font-size:0.78rem">Source dataset <select id="evalChallengePreviewDataset" class="form-input" style="width:200px" onchange="evalScheduleChallengePreview()"><option value="">Select dataset</option></select></label>
@@ -72,14 +91,34 @@ function evalRenderChallenge() {
       </div>
       <div style="font-size:0.72rem;color:#888;margin-bottom:8px">Dataset images show the camera effects for successive challenge episodes. Robot settings are listed below each pair; preview does not move the robot.</div>
       <div id="evalChallengePreviewStatus" role="status" style="font-size:0.78rem;color:#888;margin-bottom:8px">Select a dataset to preview.</div>
-      <div id="evalChallengePreviewGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px"></div>
-    </section>`;
+      <div id="evalChallengePreviewGrid" style="display:grid;grid-template-columns:minmax(0,1fr);gap:10px;background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;padding:10px;min-height:60px"></div>
+    </section>
+    </div>`;
   evalSyncChallengeControls();
 }
 
 function evalSyncChallengeControls() {
+  const enabledToggle = document.getElementById('evalChallengeDialogEnabled');
+  if (enabledToggle) enabledToggle.checked = document.getElementById('evalChallengeEnabled').checked;
   const fix = document.getElementById('evalChallengeMode').value === 'fix';
   document.getElementById('evalChallengeIntensityRow').style.display = fix ? 'none' : '';
+  document.getElementById('evalChallengeIntensityValue').textContent = document.getElementById('evalChallengeIntensity').value;
+  for (const [suffix, active] of [['Random', !fix], ['Fix', fix]]) {
+    const button = document.getElementById('evalChallengeMode' + suffix);
+    button.style.background = active ? '#e8f0fe' : '#fff';
+    button.style.color = active ? '#1a73e8' : '#555';
+    button.style.borderColor = active ? '#90caf9' : '#d0d0d0';
+    button.ariaPressed = String(active);
+  }
+  for (const [group, key] of evalChallengeFields) {
+    const id = `evalFix_${group}_${key}`;
+    document.getElementById(id + 'Value').textContent = document.getElementById(id).value;
+  }
+  for (const [group, spec] of Object.entries(evalChallengeGroups)) {
+    const hasOptions = !spec.options.length || spec.options.some(option => document.getElementById(option[2]).checked);
+    document.getElementById('evalChallengeParams_' + group).style.display =
+      fix && document.getElementById(spec.id).checked && hasOptions ? '' : 'none';
+  }
   document.getElementById('evalChallengeModeHelp').textContent = fix
     ? 'Fix uses the values below. Noise values set the amount of noise; the episode number keeps comparisons repeatable.'
     : 'Random samples values at the selected intensity. The same episode number uses the same challenge across models.';
@@ -89,6 +128,11 @@ function evalSyncChallengeControls() {
     const enabled = document.getElementById(spec.id).checked && (!option || document.getElementById(option[2]).checked);
     el.style.display = fix && enabled ? 'flex' : 'none';
   });
+}
+
+function evalSetChallengeMode(mode) {
+  document.getElementById('evalChallengeMode').value = mode === 'fix' ? 'fix' : 'random';
+  evalChallengeChanged();
 }
 
 function evalChallengeChanged() {
@@ -144,12 +188,36 @@ function evalSetChallengeConfig(config = {}) {
 let evalChallengePreviewTimer = null;
 let evalChallengePreviewRequest = 0;
 let evalChallengePreviewController = null;
+let evalChallengeDialogGeneration = 0;
+
+function evalOpenChallengeSetup() {
+  const dialog = document.getElementById('evalChallengeDialog');
+  if (dialog.open) return;
+  evalChallengeDialogGeneration++;
+  document.getElementById('evalChallengeBody').style.display = '';
+  evalSyncChallengeControls();
+  dialog.showModal();
+  evalLoadChallengePreviewSources();
+}
+
+function evalCloseChallengeSetup() {
+  document.getElementById('evalChallengeDialog').close();
+}
+
+function evalChallengeClosed() {
+  evalChallengeDialogGeneration++;
+  clearTimeout(evalChallengePreviewTimer);
+  evalChallengePreviewRequest++;
+  if (evalChallengePreviewController) evalChallengePreviewController.abort();
+  document.getElementById('evalChallengeBody').style.display = 'none';
+}
 
 function evalChallengeEscape(value) {
   return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 }
 
 async function evalLoadChallengePreviewSources() {
+  const generation = evalChallengeDialogGeneration;
   const select = document.getElementById('evalChallengePreviewDataset');
   const status = document.getElementById('evalChallengePreviewStatus');
   const previous = select.value;
@@ -157,6 +225,7 @@ async function evalLoadChallengePreviewSources() {
     const response = await fetch('/api/datasets');
     if (!response.ok) throw new Error(`Unable to load datasets (HTTP ${response.status})`);
     const data = await response.json();
+    if (generation !== evalChallengeDialogGeneration) return;
     if (!data.ok) throw new Error(data.error || 'Unable to load datasets');
     const datasets = data.datasets || [];
     select.innerHTML = '<option value="">Select dataset</option>' + datasets.map(d => `<option value="${evalChallengeEscape(d.name)}">${evalChallengeEscape(d.name)}</option>`).join('');
@@ -171,6 +240,7 @@ async function evalLoadChallengePreviewSources() {
     }
     await evalUpdateChallengePreview();
   } catch(error) {
+    if (generation !== evalChallengeDialogGeneration) return;
     status.textContent = error.message;
   }
 }

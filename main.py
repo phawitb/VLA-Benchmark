@@ -157,8 +157,7 @@ augment_state = {"running": False, "progress": 0, "status": "", "error": None}
 
 # ══════════ Robot Hardware ══════════
 
-def connect_robot():
-    import cv2
+def _create_robot():
     from lerobot.robots import make_robot_from_config
     from lerobot.robots.so_follower.config_so_follower import SOFollowerRobotConfig
 
@@ -166,7 +165,15 @@ def connect_robot():
     robot_cfg = cfg.get("robot", {})
     port = robot_cfg.get("port", "/dev/tty.usbmodem5B141122411")
     rcfg = SOFollowerRobotConfig(port=port, id=robot_cfg.get("id", "my_awesome_follower_arm"), cameras={})
-    rob = make_robot_from_config(rcfg)
+    return make_robot_from_config(rcfg)
+
+
+def connect_robot():
+    import cv2
+
+    robot_cfg = load_config().get("robot", {})
+    port = robot_cfg.get("port", "/dev/tty.usbmodem5B141122411")
+    rob = _create_robot()
     rob.connect()
     robot_state["robot"] = rob
     robot_state["connected"] = True
@@ -4292,6 +4299,43 @@ async def eval_save_config(request: Request):
     return {"ok": True}
 
 
+@app.post("/api/eval/torque")
+async def eval_set_torque(request: Request):
+    body = await request.json()
+    if not isinstance(body, dict) or type(body.get("enabled")) is not bool:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "enabled must be a boolean"})
+    if not acquire_robot_operation("eval_torque"):
+        return JSONResponse(status_code=409, content={
+            "ok": False, "code": "HARDWARE_BUSY",
+            "error": f"Robot hardware is busy with {robot_operation_owner}",
+        })
+    try:
+        with robot_io_lock:
+            temporary = not robot_state["connected"]
+            bus = _create_robot().bus if temporary else robot_state["robot"].bus
+            try:
+                if temporary:
+                    # Open only the motor bus: full robot setup can enable torque.
+                    bus.connect()
+                if body["enabled"]:
+                    positions = bus.sync_read("Present_Position", normalize=False)
+                    bus.sync_write("Goal_Position", positions, normalize=False)
+                    bus.enable_torque()
+                else:
+                    bus.disable_torque()
+                states = bus.sync_read("Torque_Enable", normalize=False)
+                if not states or any(bool(value) != body["enabled"] for value in states.values()):
+                    raise RuntimeError("Could not confirm torque on every motor")
+            finally:
+                if temporary and bus.is_connected:
+                    bus.disconnect(disable_torque=False)
+        return {"ok": True, "enabled": body["enabled"]}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    finally:
+        release_robot_operation("eval_torque")
+
+
 @app.get("/api/eval/reset-position")
 async def eval_get_reset_position():
     pos = _eval_load_reset_position()
@@ -4305,23 +4349,31 @@ async def eval_save_reset_position(request: Request):
     if pos:
         EVAL_RESET_POS_FILE.write_text(json.dumps(pos, indent=2))
         return {"ok": True, "position": pos}
-    auto_connected = False
+    if not acquire_robot_operation("eval_capture"):
+        return JSONResponse(status_code=409, content={
+            "ok": False, "code": "HARDWARE_BUSY",
+            "error": f"Robot hardware is busy with {robot_operation_owner}",
+        })
     try:
-        if not robot_state["connected"]:
-            connect_robot()
-            auto_connected = True
-        pos = robot_get_positions()
+        with robot_io_lock:
+            if robot_state["connected"]:
+                pos = robot_get_positions()
+            else:
+                # Capture after Torque Off must not re-enable motors.
+                bus = _create_robot().bus
+                try:
+                    bus.connect()
+                    values = bus.sync_read("Present_Position")
+                    pos = {j: round(float(values[j]), 2) for j in ROBOT_JOINTS}
+                finally:
+                    if bus.is_connected:
+                        bus.disconnect(disable_torque=False)
         EVAL_RESET_POS_FILE.write_text(json.dumps(pos, indent=2))
-        if auto_connected:
-            disconnect_robot()
         return {"ok": True, "position": pos}
     except Exception as e:
-        if auto_connected:
-            try:
-                disconnect_robot()
-            except Exception:
-                pass
         return {"ok": False, "error": str(e)}
+    finally:
+        release_robot_operation("eval_capture")
 
 
 @app.delete("/api/eval/reset-position")
