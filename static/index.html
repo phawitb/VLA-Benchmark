@@ -6345,9 +6345,11 @@ let evalDownloadPollTimer = null;
 
 async function evalDownloadModel() {
   if (!evalSelectedModel) return;
+  const model = evalSelectedModel;
   const btn = document.getElementById('evalDownloadBtn');
   const st = document.getElementById('evalDownloadStatus');
   const logEl = document.getElementById('evalDownloadLog');
+  if (btn.disabled) return;
   btn.disabled = true;
   st.textContent = 'Starting download...';
   logEl.style.display = '';
@@ -6356,41 +6358,57 @@ async function evalDownloadModel() {
     const r = await fetch('/api/model-download', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({repo_id: evalSelectedModel.id, model_name: evalSelectedModel.name}),
+      body: JSON.stringify({repo_id: model.id, model_name: model.name}),
     });
     const d = await r.json();
-    if (!d.ok) { st.textContent = 'Error: ' + d.error; btn.disabled = false; return; }
+    if (!r.ok || !d.ok) throw new Error(d.error || 'Could not start download');
+    let polling = false;
+    let finished = false;
+    clearInterval(evalDownloadPollTimer);
     evalDownloadPollTimer = setInterval(async () => {
+      // A slow status response must never overwrite a newer terminal state.
+      if (polling || finished) return;
+      polling = true;
       try {
-        const sr = await fetch('/api/model-download/status');
+        const sr = await fetch('/api/model-download/status', {cache:'no-store', signal:AbortSignal.timeout(15000)});
+        if (!sr.ok) throw new Error('Could not read download status');
         const sd = await sr.json();
         st.textContent = sd.status || 'Downloading...';
         if (sd.log_lines && sd.log_lines.length) {
           logEl.textContent = sd.log_lines.join('\n');
           logEl.scrollTop = logEl.scrollHeight;
         }
-        if (!sd.running) {
+        if (sd.running === false) {
+          finished = true;
           clearInterval(evalDownloadPollTimer);
+          evalDownloadPollTimer = null;
+          btn.disabled = false;
           if (sd.error) {
-            st.innerHTML = `<span style="color:#d93025">Error: ${sd.error}</span>`;
-            btn.disabled = false;
+            st.style.color = '#d93025';
+            st.textContent = 'Error: ' + sd.error;
           } else {
-            st.innerHTML = '<span style="color:#34a853;font-weight:600">Download complete!</span>';
+            st.style.color = '#34a853';
+            st.textContent = 'Download complete!';
             logEl.textContent += '\nDownload complete!';
             logEl.scrollTop = logEl.scrollHeight;
-            // Auto-refresh model list after 1.5s
-            setTimeout(async () => {
-              await evalLoadModels();
-              // Re-select the model
-              const idx = evalModels.findIndex(m => m.name === evalSelectedModel.name);
-              if (idx >= 0) {
-                document.getElementById('evalModelSelect').value = idx;
-                evalSelectModel();
-              }
-            }, 1500);
+            // Completion is authoritative; do not wait for a remote model listing.
+            model.local_exists = true;
+            evalModels.forEach(item => { if (item.id === model.id) item.local_exists = true; });
+            const sel = document.getElementById('evalModelSelect');
+            Array.from(sel.options).forEach(option => {
+              if (evalModels[Number(option.value)]?.id === model.id && option.value !== '') option.textContent = model.name;
+            });
+            if (evalSelectedModel?.id === model.id) {
+              evalSelectedModel.local_exists = true;
+              evalSelectModel();
+            }
           }
         }
-      } catch(e) {}
+      } catch(e) {
+        st.textContent = 'Status unavailable; retrying… ' + e.message;
+      } finally {
+        polling = false;
+      }
     }, 1500);
   } catch(e) { st.textContent = 'Error: ' + e.message; btn.disabled = false; }
 }
