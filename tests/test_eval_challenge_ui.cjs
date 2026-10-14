@@ -105,3 +105,17 @@ test('Setup opens a modal and retains Fix settings when closed and reopened',()=
   assert.equal(c.evalGetChallengeConfig().mode,'fix');
   assert.equal(previews,2);
 });
+
+test('Random ranges are visible and follow intensity and selected techniques',()=>{
+  const {c,doc}=setup();
+  c.evalSetChallengeConfig({enabled:true,mode:'random',intensity:5,light:{enabled:true,brightness:true,noise:true,blur:true}});
+  const box=doc.getElementById('evalChallengeRandom_light');
+  assert.equal(box.style.display,'');
+  assert.match(box.innerHTML,/0\.5<\/b> ~ <b>1\.5/);
+  assert.match(box.innerHTML,/Noise sigma/);
+  assert.match(box.innerHTML,/8<\/b> ~ <b>24/);
+  assert.match(box.innerHTML,/Blur sigma/);
+  assert.match(c.challengeRandomRanges('camera',['rotation'],1),/-1<\/b> ~ <b>1/);
+  c.evalSetChallengeConfig({enabled:true,mode:'fix'});
+  assert.equal(doc.getElementById('evalChallengeRandom_light').style.display,'none');
+});

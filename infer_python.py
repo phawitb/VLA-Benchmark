@@ -237,70 +237,7 @@ def challenge_should_send_action(augment, step):
     return step >= int(((augment or {}).get("robot") or {}).get("trim", 0))
 
 
-def _aug_frame(frame, cam_p, light_p, cv2, np, rng=None):
-    """Apply camera shift and lighting augmentation to a BGR frame."""
-    h, w = frame.shape[:2]
-    f = frame
-    if cam_p:
-        if "persp" in cam_p:
-            persp = cam_p["persp"]
-            if not isinstance(persp, np.ndarray):
-                persp = np.array(persp)
-            pts1 = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
-            pts2 = (pts1 + persp * [w, h]).astype(np.float32)
-            M = cv2.getPerspectiveTransform(pts1, pts2)
-            f = cv2.warpPerspective(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-        if "tx" in cam_p:
-            M = np.float32([[cam_p.get("scale", 1), cam_p.get("shear", 0), cam_p["tx"] * w],
-                            [0, cam_p.get("scale", 1), cam_p.get("ty", 0) * h]])
-            f = cv2.warpAffine(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-        if "angle" in cam_p:
-            M = cv2.getRotationMatrix2D((w / 2, h / 2), cam_p["angle"], 1.0)
-            f = cv2.warpAffine(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-    if light_p:
-        ff = f.astype(np.float32)
-        if "brightness" in light_p:
-            ff *= light_p["brightness"]
-        if "contrast" in light_p:
-            mean = ff.mean(axis=(0, 1), keepdims=True)
-            ff = (ff - mean) * light_p["contrast"] + mean
-        ff = np.clip(ff, 0, 255).astype(np.uint8)
-        if "saturation" in light_p:
-            hsv = cv2.cvtColor(ff, cv2.COLOR_BGR2HSV).astype(np.float32)
-            hsv[:, :, 1] *= light_p["saturation"]
-            ff = cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2BGR)
-        if "hue" in light_p:
-            hsv = cv2.cvtColor(ff, cv2.COLOR_BGR2HSV).astype(np.float32)
-            hsv[:, :, 0] = (hsv[:, :, 0] + light_p["hue"]) % 180
-            hsv[:, :, 1] = np.clip(hsv[:, :, 1] + light_p["sat_off"], 0, 255)
-            hsv[:, :, 2] = np.clip(hsv[:, :, 2] + light_p["val_off"], 0, 255)
-            ff = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-        if "shadow_a" in light_p:
-            hh, ww = ff.shape[:2]
-            a = light_p["shadow_a"]
-            d = light_p["shadow_dir"]
-            if d in ("left", "right"):
-                g = np.linspace(1 - a, 1, ww) if d == "left" else np.linspace(1, 1 - a, ww)
-                shadow = np.tile(g, (hh, 1))
-            else:
-                g = np.linspace(1 - a, 1, hh) if d == "top" else np.linspace(1, 1 - a, hh)
-                shadow = np.tile(g.reshape(-1, 1), (1, ww))
-            ff = (ff.astype(np.float32) * shadow[:, :, np.newaxis]).clip(0, 255).astype(np.uint8)
-        if "noise_s" in light_p:
-            noise = (rng if rng is not None else np.random).normal(0, light_p["noise_s"], ff.shape)
-            ff = np.clip(ff.astype(np.float32) + noise, 0, 255).astype(np.uint8)
-        if "blur_k" in light_p:
-            ff = cv2.GaussianBlur(ff, (light_p["blur_k"], light_p["blur_k"]), light_p["blur_s"])
-        f = ff
-    if light_p and "occlusion" in light_p:
-        h, w = f.shape[:2]
-        x, y, width, height = light_p["occlusion"]
-        rw, rh = max(1, round(width * w)), max(1, round(height * h))
-        x0, y0 = min(round(x * w), w - rw), min(round(y * h), h - rh)
-        f = f.copy()
-        f[y0:y0 + rh, x0:x0 + rw] = 0
-    return f
-
+from augmentation_core import _aug_frame
 
 def parse_args():
     p = argparse.ArgumentParser(description="Python VLA inference")

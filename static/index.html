@@ -421,6 +421,7 @@
     <div class="nav-item" data-tab="training">Training</div>
     <div class="nav-section">Run Model</div>
     <div class="nav-item" data-tab="evaluate">Evaluate</div>
+    <div class="nav-item" data-tab="libero-evaluate">Libero-Evaluate</div>
   </div>
   <div style="padding:12px 16px;border-top:1px solid #e0e0e0">
     <button onclick="restartAll()" id="restartAllBtn" style="width:100%;padding:8px 0;background:#e8453c;color:#fff;border:none;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer">Restart All</button>
@@ -1447,6 +1448,7 @@ pip install lerobot</pre>
   </div><!-- /page-evaluate -->
 
 
+  <div class="page" id="page-libero-evaluate" style="max-width:none"></div>
 </div><!-- /main-content -->
 
 
@@ -1493,7 +1495,9 @@ pip install lerobot</pre>
   }
 </style>
 
-<script src="/static/eval_challenge.js"></script>
+<script src="/static/eval_challenge.js?v=20261014-compact9"></script>
+<link rel="stylesheet" href="/static/libero_eval.css?v=20261014-compact9">
+<script src="/static/libero_eval.js?v=20261014-compact9"></script>
 <script>
 const COLORS = ['#e8453c','#1a73e8','#34a853','#f9ab00','#a142f4','#e8710a','#00bcd4','#e91e90','#8bc34a','#795548'];
 let cfg = null;
@@ -1588,6 +1592,7 @@ function setupEvents() {
       el.classList.add('active');
       if (el.dataset.tab === 'training' && !trainInited) trainInit();
       if (el.dataset.tab === 'evaluate' && !evalInited) evalInit();
+      if (el.dataset.tab === 'libero-evaluate') liberoInit();
       if (el.dataset.tab === 'data-collecting') dcRefreshCmd();
     });
   });

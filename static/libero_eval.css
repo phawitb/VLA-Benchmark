@@ -1,0 +1,119 @@
+#page-libero-evaluate {color:#253149}
+#page-libero-evaluate [hidden] {display:none!important}
+#page-libero-evaluate .page-title {margin-bottom:6px}
+.libero-intro,.libero-note {color:#667085;font-size:.82rem;line-height:1.55}
+.libero-tabs {display:flex;border-bottom:1px solid #dce3ef;margin:18px 0;gap:8px}
+.libero-tabs button {border:0!important;border-radius:0!important;padding:10px 20px!important;background:transparent!important}
+.libero-tabs button[aria-selected=true] {color:#245bcc;border-bottom:3px solid #245bcc!important;font-weight:700}
+.libero-layout {display:grid;grid-template-columns:minmax(320px,.85fr) minmax(420px,1.35fr);gap:20px;align-items:start}
+.libero-card {background:white;border:1px solid #dce3ef;border-radius:12px;padding:20px;min-width:0}
+#page-libero-evaluate h2 {font-size:1rem;margin:0 0 14px}
+#page-libero-evaluate label:not(.libero-check) {display:block;font-size:.8rem;font-weight:600;margin:12px 0}
+#page-libero-evaluate input:not([type=checkbox]):not([type=range]),#page-libero-evaluate select {display:block;width:100%;box-sizing:border-box;border:1px solid #ccd5e3;border-radius:6px;background:#fff;padding:8px;color:#253149;margin-top:5px;font:inherit}
+#page-libero-evaluate input[type=range] {width:85%;vertical-align:middle}
+#page-libero-evaluate input[type=checkbox] {accent-color:#245bcc;flex-shrink:0}
+#page-libero-evaluate button {border:1px solid #ccd5e3;border-radius:6px;background:#fff;padding:7px 12px;color:#344054;cursor:pointer;font-size:.8rem}
+#page-libero-evaluate button:disabled {opacity:.5;cursor:not-allowed}
+#page-libero-evaluate button:hover:not(:disabled) {background:#f0f5ff}
+#page-libero-evaluate button:focus-visible,#page-libero-evaluate input:focus-visible,#page-libero-evaluate select:focus-visible {outline:2px solid #245bcc;outline-offset:2px}
+#page-libero-evaluate .libero-primary {background:#245bcc;color:#fff;border-color:#245bcc;width:100%;padding:11px}
+.libero-grid {display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.libero-toolbar {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}
+.libero-toolbar h2,.libero-toolbar strong {margin:0;margin-right:auto}
+.libero-toolbar small {overflow-wrap:anywhere}
+.libero-tasks {max-height:240px;overflow:auto;background:#f8faff;border:1px solid #e2e8f3;border-radius:7px;padding:8px}
+.libero-check {display:flex;align-items:flex-start;gap:7px;font-size:.8rem;line-height:1.5;margin:7px 0;overflow-wrap:anywhere}
+.libero-challenge {margin:18px 0;border-top:1px solid #e2e8f3;padding-top:14px}
+#page-libero-evaluate summary {cursor:pointer;font-size:.85rem;font-weight:600;padding:6px 0}
+#page-libero-evaluate fieldset {border:1px solid #dce3ef;border-radius:7px;margin:12px 0;padding:8px 12px}
+#page-libero-evaluate legend {font-weight:600}
+.libero-metrics {display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}
+.libero-metrics div {padding:14px 10px;background:#f4f7fc;border-radius:8px}
+.libero-metrics strong {display:block;font-size:1.35rem;color:#245bcc}
+.libero-metrics span {display:block;font-size:.72rem;color:#667085;margin-top:5px}
+#page-libero-evaluate progress {width:100%;height:12px;accent-color:#245bcc}
+.libero-monitor p {font-size:.82rem;overflow-wrap:anywhere}
+.libero-error {color:#a12c25;background:#fff0ef;border:1px solid #f3c8c4;padding:10px;border-radius:6px;font-size:.82rem;white-space:pre-wrap;overflow-wrap:anywhere}
+#liberoMessage:empty {display:none}
+#liberoMessage {margin-bottom:14px}
+.libero-preview {display:block;width:100%;max-height:360px;object-fit:contain;background:#f4f7fc;border-radius:8px;margin:14px 0}
+.libero-table-scroll {overflow:auto;max-height:380px}
+#page-libero-evaluate table {border-collapse:collapse;width:100%;font-size:.78rem;text-align:left}
+#page-libero-evaluate th,#page-libero-evaluate td {border-bottom:1px solid #e2e8f3;padding:9px 7px;overflow-wrap:anywhere}
+#page-libero-evaluate th {background:#f4f7fc}
+#page-libero-evaluate pre {background:#101c30;color:#d8e4f9;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;max-height:280px;overflow:auto;font-size:.74rem;border-radius:6px}
+.libero-history-layout {display:grid;grid-template-columns:minmax(220px,.5fr) minmax(420px,1.5fr);gap:18px;align-items:start}
+#page-libero-evaluate .libero-history-item {display:block;text-align:left;width:100%;margin-bottom:9px;padding:12px}
+.libero-history-item span,.libero-history-item small {display:block;margin-top:6px;color:#667085;overflow-wrap:anywhere}
+@media(max-width:1050px){.libero-layout,.libero-history-layout{grid-template-columns:1fr}}
+@media(max-width:550px){.libero-card{padding:13px}.libero-grid{grid-template-columns:1fr}.libero-metrics{gap:5px}.libero-metrics strong{font-size:1.05rem}}
+#liberoChallengeDialog {position:fixed;inset:0;margin:auto;width:min(1200px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:90vh;padding:20px;border:0;border-radius:14px;box-shadow:0 20px 70px #0005;overflow:auto;color:#333}
+#liberoChallengeDialog::backdrop {background:rgba(20,15,30,.48)}
+.libero-dialog-header {display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;border-bottom:1px solid #ddd;padding-bottom:12px}
+#liberoChallengeDialog h2,#liberoChallengeDialog h3 {color:#6a1b9a}
+#liberoChallengeDialog fieldset {background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px}
+#liberoChallengeDialog [data-libero-fixed] {background:#eef6ff;border-radius:4px;padding:6px 10px}
+#liberoChallengeDialog .eval-challenge-slider {display:flex;font-size:.72rem;margin:4px 0}
+#liberoChallengeDialog input[type=range] {accent-color:#1a73e8;padding:0}
+.libero-preview-pair {display:flex;gap:8px}
+.libero-preview-pair figure {flex:1;min-width:0;margin:8px 0}
+.libero-preview-pair img {width:100%;border-radius:4px}
+.libero-preview-pair figcaption {font-size:.72rem;color:#888}
+.libero-mode-buttons {display:flex;gap:4px;margin-top:5px}
+#liberoChallengeDialog .eval-challenge-mode[aria-pressed=true] {background:#e8f0fe;color:#1a73e8;border-color:#90caf9}
+#page-libero-evaluate #liberoChallengeDialog label.eval-challenge-slider {display:flex;align-items:center;gap:4px;font-size:.72rem;font-weight:400;margin:4px 0}
+#page-libero-evaluate #liberoChallengeDialog .eval-challenge-slider input[type=range] {width:100%;flex:1;min-width:0}
+/* Keep technique controls aligned independently of the form's general label styles. */
+#liberoChallengeDialog .libero-tech-card {margin:14px 0;padding:14px;background:#fff;border:1px solid #e0e5ed;border-radius:10px}
+#liberoChallengeDialog .libero-check {display:flex;align-items:center;gap:9px;line-height:1.4;margin:0;cursor:pointer}
+#liberoChallengeDialog .libero-check input[type=checkbox] {appearance:auto;display:block;flex:0 0 16px;width:16px;height:16px;margin:0;padding:0;vertical-align:middle;accent-color:#2563eb}
+#liberoChallengeDialog .libero-tech-heading {font-size:.85rem;font-weight:650;padding-bottom:8px;border-bottom:1px solid #edf0f5}
+#liberoChallengeDialog .libero-tech-options {display:grid;grid-template-columns:repeat(2,max-content);gap:2px 20px;margin-top:7px}
+#liberoChallengeDialog .libero-tech-options:empty {display:none}
+#liberoChallengeDialog .libero-tech-option {min-height:26px;padding:3px 4px;border-radius:6px;font-size:.8rem;box-sizing:border-box}
+#liberoChallengeDialog .libero-tech-option:hover {background:#f3f6fc}
+#liberoChallengeDialog .libero-tech-option:focus-within {outline:2px solid #93b8f8;outline-offset:1px}
+#liberoChallengeDialog .eval-challenge-params,#liberoChallengeDialog [data-libero-fixed] {margin-top:12px;padding:10px 12px;border-radius:7px}
+#liberoChallengeDialog .libero-tech-card:has(.libero-tech-heading input:not(:checked)) .libero-tech-options {opacity:.55}
+#liberoIntensityRow {position:relative;padding-right:34px}
+#liberoIntensityValue {position:absolute;right:0;bottom:10px;min-width:24px;text-align:center;font-variant-numeric:tabular-nums;background:#eef4ff;color:#245bcc;border-radius:5px;padding:2px 4px}
+#page-libero-evaluate #liberoIntensity {width:100%;margin-top:8px}
+@media(max-width:480px){#liberoChallengeDialog .libero-tech-options{grid-template-columns:1fr}}
+.libero-history-actions {display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid #e2e8f3}
+.libero-history-actions .libero-check {align-items:center;margin:0}
+.libero-history-row {display:flex;align-items:flex-start;gap:10px;margin-bottom:9px}
+#page-libero-evaluate .libero-history-row>input {flex:0 0 16px;width:16px;height:16px;margin:15px 0 0;cursor:pointer}
+#page-libero-evaluate .libero-history-row .libero-history-item {flex:1;min-width:0;margin:0}
+.libero-history-row:has(input:checked) .libero-history-item {border-color:#8ab4f8!important;background:#eef4ff!important}
+/* Balanced workspace columns with independent scrolling. */
+#page-libero-evaluate .libero-layout {grid-template-columns:minmax(380px,440px) minmax(0,1fr);gap:18px}
+#page-libero-evaluate .libero-layout>.libero-card {max-height:calc(100dvh - 174px);overflow-y:auto;scrollbar-gutter:stable}
+#page-libero-evaluate .libero-history-layout {grid-template-columns:minmax(290px,340px) minmax(0,1fr);gap:18px}
+#page-libero-evaluate .libero-history-layout>.libero-card {max-height:calc(100dvh - 224px);overflow-y:auto;scrollbar-gutter:stable}
+#page-libero-evaluate .libero-history-sidebar {padding:14px}
+#page-libero-evaluate .libero-history-actions {position:sticky;top:-14px;background:#fff;z-index:1;padding:12px 0;margin-top:-12px;gap:8px}
+.libero-history-actions>strong {font-size:.82rem;flex:1}
+#liberoHistorySelectAllLabel {flex-basis:100%}
+#page-libero-evaluate #liberoDelete {color:#b42318;border-color:#f0b8b4;background:#fff7f6}
+.libero-challenge-row {display:flex;align-items:center;justify-content:space-between;gap:16px}
+.libero-challenge-row .libero-check {margin:0;align-items:center;font-weight:600}
+.libero-challenge-row input[type=checkbox] {width:16px;height:16px;margin:0}
+#page-libero-evaluate #liberoChallengeSetup {flex:none;padding:7px 16px;color:#6a1b9a;background:#faf5ff;border-color:#e3d3ef}
+#page-libero-evaluate .libero-tasks {max-height:160px;padding:8px 10px}
+#page-libero-evaluate .libero-tasks .libero-check {font-size:.76rem;line-height:1.45;padding:4px 0}
+#page-libero-evaluate .libero-grid {gap:0 12px}
+#page-libero-evaluate #liberoStart {width:100%;min-height:40px}
+#page-libero-evaluate .libero-history-item strong {font-size:.82rem}
+#page-libero-evaluate .libero-history-item small {font-size:.7rem;line-height:1.4;color:#7a8494}
+.libero-empty-state {min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:#738094}
+.libero-empty-state strong {font-size:1rem;color:#46546a}
+.libero-empty-state p {margin:10px 0 6px;font-size:.82rem}
+.libero-empty-state span {font-size:.75rem;max-width:290px;line-height:1.6}
+@media(max-width:1100px){#page-libero-evaluate .libero-layout{grid-template-columns:minmax(330px,.95fr) minmax(0,1fr)}#page-libero-evaluate .libero-history-layout{grid-template-columns:280px minmax(0,1fr)}}
+@media(max-width:850px){#page-libero-evaluate .libero-layout,#page-libero-evaluate .libero-history-layout{grid-template-columns:1fr}#page-libero-evaluate .libero-layout>.libero-card,#page-libero-evaluate .libero-history-layout>.libero-card{max-height:none;overflow:visible}.libero-history-actions{position:static!important}.libero-empty-state{min-height:160px}}
+#page-libero-evaluate .libero-history-actions {display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}
+#liberoHistorySelectAllLabel {flex-basis:auto}
+
+.libero-dialog-actions {display:flex;align-items:center;gap:18px}
+#liberoPreviewStatus:empty {display:none}
+@media(max-width:550px){.libero-dialog-header{align-items:flex-start;gap:12px}.libero-dialog-actions{flex-wrap:wrap;justify-content:flex-end;gap:8px}}

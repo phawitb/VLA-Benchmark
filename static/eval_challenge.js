@@ -41,6 +41,19 @@ const evalChallengeFields = [
   ['robot','jitter_s','Trajectory jitter sigma',0,2,.1,.5,'trajectory_jitter'],
 ];
 
+function challengeRandomRanges(group, options, intensity, frames=360) {
+  const s=({1:.25,2:.5,3:1,4:1.5,5:2})[intensity]||1;
+  const f=n=>Number(n.toFixed(3));
+  const row=(label,lo,hi,unit='')=>`<div><span style="color:#888">${label}:</span> <b>${f(lo)}</b> ~ <b>${f(hi)}</b> ${unit}</div>`;
+  const rows={
+    camera:{perspective:row('Perspective',-.05*s,.05*s),affine:row('Translate X / Y',-.04*s,.04*s)+row('Scale',1-.05*s,1+.05*s)+row('Shear',-.03*s,.03*s),rotation:row('Rotation',-4*s,4*s,'°')},
+    light:{brightness:row('Brightness',1-.25*s,1+.25*s),contrast:row('Contrast',1-.25*s,1+.25*s),saturation:row('Saturation',1-.35*s,1+.35*s),color_jitter:row('Hue shift',-Math.floor(8*s),Math.floor(8*s))+row('Saturation / value offset',-Math.floor(15*s),Math.floor(15*s)),shadow:row('Shadow strength',.15*s,.4*s)+'<div>Direction: left / right / top / bottom</div>',noise:row('Noise sigma',4*s,12*s),blur:row('Blur sigma',.4*s,1.2*s)+`<div>Kernel: ${s<=1?'3 / 5':'3 / 5 / 7'}</div>`},
+    occlusion:{occlusion:row('Width / height',10*s,30*s,'% of image')+'<div>Random position; fixed throughout each episode.</div>'},
+    robot:{random_start:row('Start trim',1,Math.max(1,Math.floor(frames*.12*s)),'frames'),initial_noise:`<div>Joint offset: Gaussian σ = ${f(1.5*s)}</div>`,trajectory_jitter:row('Trajectory jitter sigma',.3*s,1*s)}
+  };
+  return options.map(k=>rows[group]?.[k]||'').join('');
+}
+
 function evalRenderChallenge() {
   const body = document.getElementById('evalChallengeBody');
   body.innerHTML = `
@@ -71,7 +84,7 @@ function evalRenderChallenge() {
         ${spec.options.map(([,label,id,checked]) => `<div style="font-size:0.8rem;padding-left:18px;margin-top:4px"><label><input type="checkbox" id="${id}" ${checked?'checked':''} onchange="evalChallengeChanged()"> ${label}</label></div>`).join('')}
         ${group==='robot'?'<p style="font-size:0.72rem;color:#888">Trim skips initial commands. Joint noise affects observations and outgoing arm commands; the gripper stays unchanged.</p>':''}
         ${group==='occlusion'?'<p style="font-size:0.72rem;color:#888">Black rectangle with a stable position and size throughout each episode.</p>':''}
-        <div class="eval-challenge-params" id="evalChallengeParams_${group}">
+        <div class="eval-challenge-params" id="evalChallengeRandom_${group}"></div><div class="eval-challenge-params" id="evalChallengeParams_${group}">
         ${evalChallengeFields.filter(f=>f[0]===group).map(([g,key,label,min,max,step,value,tech])=>`
           <label data-challenge-field="${g}" data-technique="${tech}" class="eval-challenge-slider"><span class="eval-challenge-slider-label">${label}:</span>
             <input id="evalFix_${g}_${key}" aria-label="${spec.title}: ${label}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" oninput="evalChallengeChanged()">
@@ -116,6 +129,9 @@ function evalSyncChallengeControls() {
   }
   for (const [group, spec] of Object.entries(evalChallengeGroups)) {
     const hasOptions = !spec.options.length || spec.options.some(option => document.getElementById(option[2]).checked);
+    const ranges=document.getElementById('evalChallengeRandom_'+group);
+    ranges.style.display=!fix && document.getElementById(spec.id).checked && hasOptions?'':'none';
+    ranges.innerHTML=challengeRandomRanges(group,group==='occlusion'?['occlusion']:spec.options.filter(o=>document.getElementById(o[2]).checked).map(o=>o[0]),Number(document.getElementById('evalChallengeIntensity').value),Number(document.getElementById('evalFps')?.value||30)*Number(document.getElementById('evalDuration')?.value||12));
     document.getElementById('evalChallengeParams_' + group).style.display =
       fix && document.getElementById(spec.id).checked && hasOptions ? '' : 'none';
   }

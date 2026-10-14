@@ -9,6 +9,15 @@ import infer_python as worker
 
 
 class ChallengeTests(unittest.TestCase):
+    def test_all_paths_use_one_augmentation_engine(self):
+        import augmentation_core as core
+        import libero_challenge as libero
+        self.assertIs(main._aug_frame, core._aug_frame)
+        self.assertIs(worker._aug_frame, core._aug_frame)
+        for name in ('_augp_camera', '_augp_light', '_augp_robot', '_eval_challenge_params'):
+            self.assertIs(getattr(main, name), getattr(core, name))
+            self.assertIs(getattr(libero, name), getattr(core, name))
+
     def config(self, mode='fix'):
         return dict(enabled=True, mode=mode, intensity=3,
             camera=dict(enabled=True, perspective=True, affine=True, rotation=True),
