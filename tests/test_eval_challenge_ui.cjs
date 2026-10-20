@@ -42,6 +42,43 @@ test('Legacy settings default to Random and enabled camera/light without enablin
   assert.equal(r.occlusion.enabled,false);
 });
 
+test('Multi-camera dropout persists settings and intensity defaults stay editable',()=>{
+  const {c,doc}=setup();
+  c.evalSetChallengeCameras(['top','wrist','side','front']);
+  const dropout={enabled:true,cameras:['observation.images.wrist','observation.images.side'],
+    keep_count:1,mode:'random',drop_camera_percent:65};
+  c.evalSetChallengeConfig({enabled:true,intensity:2,camera_dropout:dropout});
+  assert.deepEqual(JSON.parse(JSON.stringify(c.evalGetChallengeConfig().camera_dropout)),dropout);
+  c.evalChallengeChanged();
+  assert.equal(c.evalGetChallengeConfig().camera_dropout.drop_camera_percent,65);
+  for (const [intensity,percent] of [[1,10],[2,30],[3,50],[4,70],[5,90]]) {
+    doc.getElementById('evalChallengeIntensity').value=String(intensity);
+    c.evalChallengeChanged(true);
+    assert.equal(c.evalGetChallengeConfig().camera_dropout.drop_camera_percent,percent);
+  }
+  doc.getElementById('evalTargetRuns').value='10';
+  c.evalSyncChallengeControls();
+  assert.match(doc.getElementById('evalChDropoutHint').textContent,/9 dropout.*1.*all cameras/);
+  c.evalDropoutCameraChanged(1,false);
+  assert.deepEqual(JSON.parse(JSON.stringify(c.evalGetChallengeConfig().camera_dropout.cameras)),['observation.images.side']);
+});
+
+test('Dropout preview includes target runs and shows which camera is black',async()=>{
+  const {c,doc}=setup();
+  c.evalSetChallengeCameras(['top','wrist']);
+  c.evalSetChallengeConfig({enabled:true,camera_dropout:{enabled:true,drop_camera_percent:70}});
+  doc.getElementById('evalChallengePreviewDataset').value='source';
+  doc.getElementById('evalTargetRuns').value='10';
+  let payload;
+  c.fetch=async(url,opts)=>{payload=JSON.parse(opts.body);return {ok:true,json:async()=>({ok:true,
+    previews:[{source_episode:0,challenge_episode:1,camera:'wrist',dropped:true,original:'AAA',augmented:'BBB',
+      params:{camera_dropout:{kept_cameras:['observation.images.top'],dropped_cameras:['observation.images.wrist']}}}]})};};
+  await c.evalUpdateChallengePreview();
+  assert.equal(payload.target_runs,10);
+  assert.equal(payload.challenge_env.camera_dropout.drop_camera_percent,70);
+  assert.match(doc.getElementById('evalChallengePreviewGrid').innerHTML,/Black/);
+});
+
 test('Run request includes the complete challenge config used by Save',()=>{
   const {c,doc}=setup();
   c.evalSetChallengeConfig({enabled:true,mode:'fix',occlusion:{enabled:true},robot:{enabled:true,trajectory_jitter:true}});
@@ -104,4 +141,18 @@ test('Setup opens a modal and retains Fix settings when closed and reopened',()=
   assert.equal(c.evalGetChallengeConfig().fixed_params.camera.angle,6);
   assert.equal(c.evalGetChallengeConfig().mode,'fix');
   assert.equal(previews,2);
+});
+
+test('Random ranges are visible and follow intensity and selected techniques',()=>{
+  const {c,doc}=setup();
+  c.evalSetChallengeConfig({enabled:true,mode:'random',intensity:5,light:{enabled:true,brightness:true,noise:true,blur:true}});
+  const box=doc.getElementById('evalChallengeRandom_light');
+  assert.equal(box.style.display,'');
+  assert.match(box.innerHTML,/0\.5<\/b> ~ <b>1\.5/);
+  assert.match(box.innerHTML,/Noise sigma/);
+  assert.match(box.innerHTML,/8<\/b> ~ <b>24/);
+  assert.match(box.innerHTML,/Blur sigma/);
+  assert.match(c.challengeRandomRanges('camera',['rotation'],1),/-1<\/b> ~ <b>1/);
+  c.evalSetChallengeConfig({enabled:true,mode:'fix'});
+  assert.equal(doc.getElementById('evalChallengeRandom_light').style.display,'none');
 });

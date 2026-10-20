@@ -9,6 +9,47 @@ import infer_python as worker
 
 
 class ChallengeTests(unittest.TestCase):
+    def test_dropout_uses_evaluation_cameras_exact_quota_and_repeatable_selection(self):
+        config = {'enabled': True, 'camera': {'enabled': False}, 'light': {'enabled': False},
+                  'camera_dropout': {'enabled': True, 'drop_camera_percent': 50,
+                                     'keep_count': 1, 'mode': 'cycle'}}
+        before = random.getstate()
+        params = [main._eval_challenge_params(config, ep, 30, 12,
+                  camera_keys=['top', 'wrist', 'side'], total_episodes=4) for ep in range(1, 5)]
+        self.assertEqual([p['camera_dropout']['kept_cameras'] for p in params], [
+            ['observation.images.top'], ['observation.images.top', 'observation.images.wrist', 'observation.images.side'],
+            ['observation.images.wrist'], ['observation.images.top', 'observation.images.wrist', 'observation.images.side']])
+        self.assertEqual(before, random.getstate())
+        config['camera_dropout']['mode'] = 'random'
+        self.assertEqual(main._eval_challenge_params(config, 1, 30, 12, camera_keys=['top', 'wrist']),
+                         main._eval_challenge_params(config, 1, 30, 12, camera_keys=['top', 'wrist']))
+
+    def test_dropout_worker_blacks_both_camera_key_formats_without_changing_state(self):
+        original = np.full((12, 16, 3), 200, np.uint8)
+        obs = {'top': original.copy(), 'observation.images.wrist': original.copy(),
+               'observation.state': [1., 2.]}
+        params = {'seed': 1, 'light': {'brightness': 1.2}, 'camera_dropout': {
+            'kept_cameras': ['observation.images.top'], 'dropped_cameras': ['observation.images.wrist']}}
+        for step in (0, 1, 10):
+            worker.apply_challenge_camera_images(obs, ['top', 'wrist'], params, step, cv2, np)
+            self.assertEqual(obs['observation.images.wrist'].shape, original.shape)
+            self.assertEqual(obs['observation.images.wrist'].max(), 0)
+            self.assertGreater(obs['top'].min(), 0)
+            self.assertEqual(obs['observation.state'], [1., 2.])
+        self.assertEqual(original.min(), 200)
+
+    def test_dropout_cannot_run_with_only_one_active_camera(self):
+        with self.assertRaisesRegex(ValueError, 'at least 2'):
+            main._eval_challenge_params({'enabled': True, 'camera_dropout': {'enabled': True}},
+                1, 30, 12, camera_keys=['top'], total_episodes=10)
+
+    def test_all_paths_use_one_augmentation_engine(self):
+        import augmentation_core as core
+        self.assertIs(main._aug_frame, core._aug_frame)
+        self.assertIs(worker._aug_frame, core._aug_frame)
+        for name in ('_augp_camera', '_augp_light', '_augp_robot', '_eval_challenge_params'):
+            self.assertIs(getattr(main, name), getattr(core, name))
+
     def config(self, mode='fix'):
         return dict(enabled=True, mode=mode, intensity=3,
             camera=dict(enabled=True, perspective=True, affine=True, rotation=True),

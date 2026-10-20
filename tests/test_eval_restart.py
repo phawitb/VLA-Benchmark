@@ -9,6 +9,30 @@ import infer_python as worker
 
 
 class EvalRestartTests(unittest.TestCase):
+    def test_dropout_start_returns_parameters_for_target_runs_and_actual_cameras(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'models/act_test').mkdir(parents=True)
+            record = dict(id='act_test', selectable=True, local_path='models/act_test', policy_type='act', camera_features=[])
+            manager = Mock()
+            manager.ensure_model.return_value = dict(ok=True, reused=True, pid=123)
+            manager.run_task.return_value = dict(ok=True, pid=123)
+            challenge = {'enabled': True, 'camera': {'enabled': False}, 'light': {'enabled': False},
+                         'camera_dropout': {'enabled': True, 'drop_camera_percent': 50}}
+            config = {'robot': {'cameras': {'top': {'index': 0}, 'wrist': {'index': 1}, 'side': {'index': 2}}}}
+            with patch.multiple(main, ROOT=root, vla_manager=manager,
+                    robot_state={'connected': False}, teleop_state={'running': False}, eval_state={'running': False}), \
+                 patch.object(main, 'load_config', return_value=config), \
+                 patch.object(main, 'load_local_models', return_value=[record]), \
+                 patch.object(main, '_eval_load_reset_position', return_value=None):
+                result = asyncio.run(main._eval_start_owned(dict(model_id='act_test', task='pick',
+                    episode=3, target_runs=4, challenge_env=challenge)))
+            self.assertTrue(result['ok'], result)
+            self.assertEqual(result['augment_params']['camera_dropout']['kept_cameras'], ['observation.images.wrist'])
+            self.assertEqual(result['augment_params']['camera_dropout']['dropped_cameras'],
+                             ['observation.images.top', 'observation.images.side'])
+            self.assertEqual(manager.run_task.call_args.args[5], result['augment_params'])
+
     def test_episode_uses_local_registry_and_worker_reset(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

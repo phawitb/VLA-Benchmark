@@ -237,70 +237,34 @@ def challenge_should_send_action(augment, step):
     return step >= int(((augment or {}).get("robot") or {}).get("trim", 0))
 
 
-def _aug_frame(frame, cam_p, light_p, cv2, np, rng=None):
-    """Apply camera shift and lighting augmentation to a BGR frame."""
-    h, w = frame.shape[:2]
-    f = frame
-    if cam_p:
-        if "persp" in cam_p:
-            persp = cam_p["persp"]
-            if not isinstance(persp, np.ndarray):
-                persp = np.array(persp)
-            pts1 = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
-            pts2 = (pts1 + persp * [w, h]).astype(np.float32)
-            M = cv2.getPerspectiveTransform(pts1, pts2)
-            f = cv2.warpPerspective(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-        if "tx" in cam_p:
-            M = np.float32([[cam_p.get("scale", 1), cam_p.get("shear", 0), cam_p["tx"] * w],
-                            [0, cam_p.get("scale", 1), cam_p.get("ty", 0) * h]])
-            f = cv2.warpAffine(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-        if "angle" in cam_p:
-            M = cv2.getRotationMatrix2D((w / 2, h / 2), cam_p["angle"], 1.0)
-            f = cv2.warpAffine(f, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-    if light_p:
-        ff = f.astype(np.float32)
-        if "brightness" in light_p:
-            ff *= light_p["brightness"]
-        if "contrast" in light_p:
-            mean = ff.mean(axis=(0, 1), keepdims=True)
-            ff = (ff - mean) * light_p["contrast"] + mean
-        ff = np.clip(ff, 0, 255).astype(np.uint8)
-        if "saturation" in light_p:
-            hsv = cv2.cvtColor(ff, cv2.COLOR_BGR2HSV).astype(np.float32)
-            hsv[:, :, 1] *= light_p["saturation"]
-            ff = cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2BGR)
-        if "hue" in light_p:
-            hsv = cv2.cvtColor(ff, cv2.COLOR_BGR2HSV).astype(np.float32)
-            hsv[:, :, 0] = (hsv[:, :, 0] + light_p["hue"]) % 180
-            hsv[:, :, 1] = np.clip(hsv[:, :, 1] + light_p["sat_off"], 0, 255)
-            hsv[:, :, 2] = np.clip(hsv[:, :, 2] + light_p["val_off"], 0, 255)
-            ff = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-        if "shadow_a" in light_p:
-            hh, ww = ff.shape[:2]
-            a = light_p["shadow_a"]
-            d = light_p["shadow_dir"]
-            if d in ("left", "right"):
-                g = np.linspace(1 - a, 1, ww) if d == "left" else np.linspace(1, 1 - a, ww)
-                shadow = np.tile(g, (hh, 1))
-            else:
-                g = np.linspace(1 - a, 1, hh) if d == "top" else np.linspace(1, 1 - a, hh)
-                shadow = np.tile(g.reshape(-1, 1), (1, ww))
-            ff = (ff.astype(np.float32) * shadow[:, :, np.newaxis]).clip(0, 255).astype(np.uint8)
-        if "noise_s" in light_p:
-            noise = (rng if rng is not None else np.random).normal(0, light_p["noise_s"], ff.shape)
-            ff = np.clip(ff.astype(np.float32) + noise, 0, 255).astype(np.uint8)
-        if "blur_k" in light_p:
-            ff = cv2.GaussianBlur(ff, (light_p["blur_k"], light_p["blur_k"]), light_p["blur_s"])
-        f = ff
-    if light_p and "occlusion" in light_p:
-        h, w = f.shape[:2]
-        x, y, width, height = light_p["occlusion"]
-        rw, rh = max(1, round(width * w)), max(1, round(height * h))
-        x0, y0 = min(round(x * w), w - rw), min(round(y * h), h - rh)
-        f = f.copy()
-        f[y0:y0 + rh, x0:x0 + rw] = 0
-    return f
+from augmentation_core import _aug_frame, _apply_camera_dropout
 
+
+def apply_challenge_camera_images(obs, camera_names, augment, step, cv2, np):
+    """Transform policy observations, keeping dropped views black for the episode."""
+    applied = False
+    for camera_index, camera_name in enumerate(camera_names):
+        for key in (camera_name, f"observation.images.{camera_name}"):
+            if key not in obs or obs[key] is None:
+                continue
+            image = obs[key]
+            if hasattr(image, "detach"):
+                image = image.detach().cpu().numpy()
+            image = np.asarray(image)
+            if image.ndim == 3 and image.shape[0] in (3, 4) and image.shape[-1] not in (3, 4):
+                image = np.moveaxis(image, 0, -1)
+            if image.ndim != 3 or image.shape[-1] not in (3, 4):
+                continue
+            if image.dtype != np.uint8:
+                scale = 255.0 if image.size and float(image.max()) <= 1.0 else 1.0
+                image = np.clip(image * scale, 0, 255).astype(np.uint8)
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            rng = np.random.default_rng([augment.get("seed", 0), step, camera_index])
+            image = _aug_frame(image, augment.get("camera"), augment.get("light"), cv2, np, rng=rng)
+            image = _apply_camera_dropout(image, camera_name, augment, np)
+            obs[key] = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            applied = True
+    return applied
 
 def parse_args():
     p = argparse.ArgumentParser(description="Python VLA inference")
@@ -692,28 +656,7 @@ def main():
             if args._augment:
                 _aug_cam = args._augment.get("camera")
                 _aug_lit = args._augment.get("light")
-                _aug_applied = False
-                for _cam_index, _cam_name in enumerate(cameras_dict):
-                    for _cam_key in (_cam_name, f"observation.images.{_cam_name}"):
-                        if _cam_key not in obs or obs[_cam_key] is None:
-                            continue
-                        _img = obs[_cam_key]
-                        if hasattr(_img, "detach"):
-                            _img = _img.detach().cpu().numpy()
-                        _img = np.asarray(_img)
-                        if _img.ndim == 3 and _img.shape[0] in (3, 4) and _img.shape[-1] not in (3, 4):
-                            _img = np.moveaxis(_img, 0, -1)
-                        if _img.ndim != 3 or _img.shape[-1] not in (3, 4):
-                            continue
-                        if _img.dtype != np.uint8:
-                            _scale = 255.0 if _img.size and float(_img.max()) <= 1.0 else 1.0
-                            _img = np.clip(_img * _scale, 0, 255).astype(np.uint8)
-                        _img = cv2.cvtColor(_img, cv2.COLOR_RGB2BGR)
-                        _rng = np.random.default_rng([args._augment.get("seed", 0), step, _cam_index])
-                        _img = _aug_frame(_img, _aug_cam, _aug_lit, cv2, np, rng=_rng)
-                        _img = cv2.cvtColor(_img, cv2.COLOR_BGR2RGB)
-                        obs[_cam_key] = _img
-                        _aug_applied = True
+                _aug_applied = apply_challenge_camera_images(obs, cameras_dict, args._augment, step, cv2, np)
                 if step == 0 and _aug_applied:
                     print(f"[infer_python] Challenge env augmentation active: camera={list(_aug_cam.keys()) if _aug_cam else None} light={list(_aug_lit.keys()) if _aug_lit else None}", flush=True)
                 elif step == 0 and not _aug_applied:
