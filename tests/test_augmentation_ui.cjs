@@ -12,6 +12,7 @@ const script = html.slice(html.indexOf('async function vizShowAugment()'),
 function setup() {
   const elements = new Map();
   for (const id of ['augOcclusionEnabled', 'augCamEnabled', 'augLightEnabled',
+    'augDropoutEnabled', 'augDropoutKeep', 'augDropoutMode', 'augDropoutPercent', 'augDropCam0', 'augDropCam1', 'augDropCam2',
     'augRobotEnabled', 'augLangEnabled', 'augTargetEps', 'augNewName', 'augIntensity',
     'augStatus', 'augBtn', 'augProgress', 'augBar', 'augPreviewGrid', 'augPreviewStatus',
     'augOcclusionParams', 'augSummary', 'augMultLabel', 'afOccX', 'afOccY', 'afOccW', 'afOccH']) {
@@ -19,6 +20,7 @@ function setup() {
   }
   const el = id => elements.get(id);
   el('augIntensity').value = '3';
+  el('augDropoutPercent').value = '50';
   el('augTargetEps').value = '4';
   el('augNewName').value = 'generated';
   el('augOcclusionEnabled').checked = true;
@@ -69,6 +71,78 @@ test('Random and disabled occlusion payloads respect selected controls', async (
     assert.equal(body.fixed_params, null);
     assert.equal(body.mode, 'random');
   }
+});
+
+test('Multi-camera dropout controls send identical preview and generation choices', async () => {
+  const {context: c, el, calls} = setup();
+  c.window._augCameraKeys = ['observation.images.top', 'observation.images.wrist', 'observation.images.side'];
+  el('augDropoutEnabled').checked = true;
+  el('augDropCam0').checked = true;
+  el('augDropCam2').checked = true;
+  el('augDropoutKeep').value = '1';
+  el('augDropoutMode').value = 'cycle';
+  await c._augPreviewUpdate();
+  await c.vizDoAugment('source');
+  assert.equal(calls.length, 2);
+  for (const {body} of calls) {
+    assert.deepEqual(body.techniques.camera_dropout, {enabled: true,
+      cameras: ['observation.images.top', 'observation.images.side'], keep_count: 1, mode: 'cycle', drop_camera_percent: 50});
+  }
+  c.updateAugSummary(2);
+  assert.match(el('augSummary').innerHTML, /Camera Dropout/);
+  assert.match(el('augSummary').innerHTML, /2 full.*2 dropout/);
+  assert.equal(calls[0].body.target_episodes, 4);
+});
+
+test('Intensity sets dropout defaults while unrelated controls preserve a manual percentage', async () => {
+  const {context: c, el, calls} = setup();
+  for (const [intensity, percent] of [[1, 10], [2, 30], [3, 50], [4, 70], [5, 90]]) {
+    el('augIntensity').value = String(intensity);
+    c.syncAugDropoutControls(true);
+    assert.equal(Number(el('augDropoutPercent').value), percent);
+    await c._augPreviewUpdate();
+    await c.vizDoAugment('source');
+    for (const {body} of calls.slice(-2)) {
+      assert.equal(body.intensity, intensity);
+      assert.equal(body.techniques.camera_dropout.drop_camera_percent, percent);
+    }
+  }
+  el('augDropoutPercent').value = '65';
+  c.syncAugDropoutControls();
+  assert.equal(c.getCameraDropout().drop_camera_percent, 65);
+  el('augIntensity').value = '2';
+  c.syncAugDropoutControls(true);
+  assert.equal(c.getCameraDropout().drop_camera_percent, 30);
+});
+
+test('Preview renders every camera with its kept or black status', async () => {
+  const {context: c, el} = setup();
+  c.fetch = async () => ({json: async () => ({ok: true, previews: [{ep: 0,
+    cameras: [{camera: 'observation.images.top', dropped: false, original: 'a', augmented: 'b'},
+      {camera: 'observation.images.wrist', dropped: true, original: 'c', augmented: 'd'}]}]})});
+  await c._augPreviewUpdate();
+  assert.match(el('augPreviewGrid').innerHTML, /top/);
+  assert.match(el('augPreviewGrid').innerHTML, /wrist/);
+  assert.match(el('augPreviewGrid').innerHTML, /Black/);
+  assert.match(el('augPreviewGrid').innerHTML, /Active/);
+});
+
+test('A slow old preview cannot replace the latest camera selection', async () => {
+  const {context: c, el} = setup();
+  const pending = [];
+  c.fetch = async () => ({json: () => new Promise(resolve => pending.push(resolve))});
+  const first = c._augPreviewUpdate();
+  await new Promise(setImmediate);
+  const latest = c._augPreviewUpdate();
+  await new Promise(setImmediate);
+  pending[1]({ok: true, previews: [{ep: 2, cameras: [
+    {camera: 'wrist', dropped: true, original: 'a', augmented: 'b'}]}]});
+  await latest;
+  pending[0]({ok: true, previews: [{ep: 1, cameras: [
+    {camera: 'top', dropped: false, original: 'a', augmented: 'b'}]}]});
+  await first;
+  assert.match(el('augPreviewGrid').innerHTML, /wrist/);
+  assert.doesNotMatch(el('augPreviewGrid').innerHTML, /top · Active/);
 });
 
 test('Occlusion renders saved Fix controls, random ranges, and summary', () => {

@@ -1495,7 +1495,7 @@ pip install lerobot</pre>
   }
 </style>
 
-<script src="/static/eval_challenge.js?v=20261014-compact9"></script>
+<script src="/static/eval_challenge.js?v=20261020-dropout"></script>
 <link rel="stylesheet" href="/static/libero_eval.css?v=20261014-compact9">
 <script src="/static/libero_eval.js?v=20261014-compact9"></script>
 <script>
@@ -2050,6 +2050,7 @@ function evalBuildCamOptions() {
   // restore previous selection if still valid
   const opts = Array.from(sel.options).map(o => o.value);
   sel.value = opts.includes(prev) ? prev : 'all';
+  evalSetChallengeCameras(enabled);
 }
 
 async function restartAll() {
@@ -3154,6 +3155,10 @@ async function vizShowAugment() {
     if (!d.ok) { alert('Error loading dataset'); return; }
     const totalEps = d.info.total_episodes || 0;
     const defaultTarget = Math.max(totalEps * 3, 10);
+    window._augCameraKeys = Object.entries(d.info.features || {})
+      .filter(([key, feature]) => key.startsWith('observation.images.') && feature.dtype === 'video')
+      .map(([key]) => key);
+    const cameraKeys = window._augCameraKeys;
 
     const body = document.getElementById('modalBody');
     body.innerHTML = `
@@ -3255,6 +3260,26 @@ async function vizShowAugment() {
                 <div style="display:flex;align-items:baseline;gap:4px"><label><input type="checkbox" id="augLangTypo"> Typo</label><span style="font-size:0.72rem;color:#aaa">— small typos for robustness</span></div>
               </div>
             </div>
+            <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px;margin-bottom:8px">
+              <label style="font-weight:600;font-size:0.85rem"><input type="checkbox" id="augDropoutEnabled" ${cameraKeys.length < 2 ? 'disabled' : ''}> Camera Dropout</label>
+              <div style="font-size:0.75rem;color:#777;margin:4px 0 8px 18px">Mix episodes using all cameras with episodes using only some views. Other augmentation techniques still apply.</div>
+              ${cameraKeys.length < 2 ? '<div style="font-size:0.75rem;color:#999">Requires at least 2 camera views.</div>' : ''}
+              <div style="padding-left:18px;font-size:0.82rem;color:#555">
+                <label>Episodes with dropped cameras (%) <input type="number" id="augDropoutPercent" min="0" max="100" step="1" value="50" style="width:65px;margin:0 6px"></label>
+                <div style="font-size:0.72rem;color:#777;margin-top:5px">Higher Intensity drops camera views in more episodes. Changing Intensity resets this default; you can edit it manually.</div>
+                <div style="font-size:0.72rem;color:#777;margin:5px 0 8px">These episodes use the camera pool below; the rest use all cameras. In dropout episodes, inactive views stay black for the entire episode. Counts round to the nearest whole episode.</div>
+                <div style="margin-bottom:4px">Camera pool for dropout episodes (unchecked views black)</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:8px">
+                  ${cameraKeys.map((key, i) => `<label><input type="checkbox" id="augDropCam${i}" checked> ${augEscape(key.replace('observation.images.', ''))}</label>`).join('')}
+                </div>
+                <label>Active cameras per episode <input type="number" id="augDropoutKeep" min="1" max="${cameraKeys.length}" value="1" style="width:55px;margin:0 6px"></label>
+                <select id="augDropoutMode" class="form-input" style="width:auto;margin-top:6px">
+                  <option value="cycle">Rotate evenly</option><option value="random">Random subset per episode</option>
+                </select>
+                <div id="augDropoutHint" style="font-size:0.72rem;color:#777;margin-top:5px"></div>
+              </div>
+            </div>
+
           </div>
 
           <div style="display:flex;gap:10px;align-items:center">
@@ -3289,6 +3314,7 @@ async function vizShowAugment() {
     window._augPreviewName = name;
     window._augTotalEps = totalEps;
     window._augMode = 'random';
+    syncAugDropoutControls(true);
     updateAugSummary(totalEps);
     renderAugParams();
     _augPreviewUpdate();
@@ -3297,11 +3323,12 @@ async function vizShowAugment() {
     const watchIds = ['augCamEnabled','augCamPersp','augCamAffine','augCamRot',
       'augLightEnabled','augLightBright','augLightContrast','augLightSat','augLightJitter','augLightShadow','augLightNoise','augLightBlur','augOcclusionEnabled',
       'augRobotEnabled','augRobotStart','augRobotOffset','augRobotJitter',
-      'augLangEnabled','augLangSyn','augLangTypo','augIntensity'];
+      'augLangEnabled','augLangSyn','augLangTypo','augIntensity',
+      'augDropoutEnabled','augDropoutKeep','augDropoutMode','augDropoutPercent','augTargetEps', ...cameraKeys.map((_, i) => `augDropCam${i}`)];
     watchIds.forEach(id => {
       const el = document.getElementById(id);
       if (el) {
-        el.addEventListener('input', _augPreviewDebounce);
+        el.addEventListener('input', () => { syncAugDropoutControls(id === 'augIntensity'); _augPreviewDebounce(); });
         el.addEventListener('input', () => { updateAugSummary(totalEps); renderAugParams(); });
       }
     });
@@ -3309,9 +3336,52 @@ async function vizShowAugment() {
   } catch(e) { alert(e.message); }
 }
 
+function augEscape(value) {
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function getCameraDropout() {
+  return {
+    enabled: document.getElementById('augDropoutEnabled')?.checked || false,
+    cameras: (window._augCameraKeys || []).filter((_, i) => document.getElementById(`augDropCam${i}`)?.checked),
+    keep_count: Number(document.getElementById('augDropoutKeep')?.value || 1),
+    mode: document.getElementById('augDropoutMode')?.value || 'cycle',
+    drop_camera_percent: Number(document.getElementById('augDropoutPercent')?.value || 0),
+  };
+}
+
+function syncAugDropoutControls(resetDefault = false) {
+  const percent = document.getElementById('augDropoutPercent');
+  if (percent && resetDefault) {
+    const intensity = Number(document.getElementById('augIntensity')?.value || 3);
+    percent.value = String(({1:10, 2:30, 3:50, 4:70, 5:90})[intensity] ?? 50);
+  }
+  const config = getCameraDropout();
+  const keep = document.getElementById('augDropoutKeep');
+  if (keep) {
+    keep.max = Math.max(1, config.cameras.length);
+    if (Number(keep.value) > Number(keep.max)) keep.value = keep.max;
+    keep.disabled = !config.enabled;
+  }
+  const mode = document.getElementById('augDropoutMode');
+  if (mode) mode.disabled = !config.enabled;
+  if (percent) percent.disabled = !config.enabled;
+  (window._augCameraKeys || []).forEach((_, i) => {
+    const control = document.getElementById(`augDropCam${i}`);
+    if (control) control.disabled = !config.enabled;
+  });
+  const hint = document.getElementById('augDropoutHint');
+  if (hint) hint.textContent = !config.enabled ? 'Enable to simulate missing camera views.' :
+    !config.cameras.length ? 'Select at least one camera.' :
+    `${Math.round(Number(document.getElementById('augTargetEps')?.value || 0) * config.drop_camera_percent / 100)} dropout episodes: ${keep.value} active from ${config.cameras.length} selected views, ${window._augCameraKeys.length - Number(keep.value)} black. ` +
+    (config.mode === 'cycle' ? 'Rotate the active group each episode.' : 'Choose a fresh subset for each episode.');
+}
+
 function setAugMult(mult, totalEps, name) {
   const target = mult * totalEps;
   document.getElementById('augTargetEps').value = target;
+  syncAugDropoutControls();
+  _augPreviewDebounce();
   document.querySelectorAll('.aug-mult').forEach(b => {
     const m = parseInt(b.dataset.mult);
     b.style.background = m === mult ? '#e8f0fe' : '#fff';
@@ -3354,6 +3424,11 @@ function updateAugSummary(totalEps) {
   if (document.getElementById('augCamEnabled')?.checked) techs.push('Camera Shift');
   if (document.getElementById('augLightEnabled')?.checked) techs.push('Light & Quality');
   if (document.getElementById('augOcclusionEnabled')?.checked) techs.push('Random Occlusion');
+  if (document.getElementById('augDropoutEnabled')?.checked) {
+    const dropout = getCameraDropout();
+    const dropCount = Math.round(target * dropout.drop_camera_percent / 100);
+    techs.push(`Camera Dropout (${target - dropCount} full / ${dropCount} dropout; ${dropout.keep_count}/${(window._augCameraKeys || []).length} active, ${dropout.mode})`);
+  }
   if (document.getElementById('augRobotEnabled')?.checked) techs.push('Robot Noise');
   if (document.getElementById('augLangEnabled')?.checked) techs.push('Language');
 
@@ -3499,7 +3574,9 @@ function getFixedParams() {
 }
 
 let _augPreviewTimer = null;
+let _augPreviewRequest = 0;
 function _augPreviewDebounce() {
+  ++_augPreviewRequest;
   clearTimeout(_augPreviewTimer);
   _augPreviewTimer = setTimeout(_augPreviewUpdate, 300);
 }
@@ -3510,10 +3587,12 @@ async function _augPreviewUpdate() {
   const grid = document.getElementById('augPreviewGrid');
   const st = document.getElementById('augPreviewStatus');
   if (!grid) return;
+  const requestId = ++_augPreviewRequest;
   if (st) st.textContent = 'Generating...';
 
   const intensity = parseInt(document.getElementById('augIntensity')?.value || 3);
   const techniques = {
+    camera_dropout: getCameraDropout(),
     occlusion: { enabled: document.getElementById('augOcclusionEnabled')?.checked },
     camera: {
       enabled: document.getElementById('augCamEnabled')?.checked,
@@ -3537,30 +3616,38 @@ async function _augPreviewUpdate() {
     const r = await fetch(`/api/datasets/${name}/augment-preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ intensity, techniques, count: 5, mode: window._augMode || 'random', fixed_params: getFixedParams() }),
+      body: JSON.stringify({ intensity, techniques, count: 5, target_episodes: Number(document.getElementById('augTargetEps')?.value || 5), mode: window._augMode || 'random', fixed_params: getFixedParams() }),
     });
     const d = await r.json();
+    if (requestId !== _augPreviewRequest) return;
     if (!d.ok || !d.previews?.length) {
-      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#d93025;font-size:0.8rem;padding:16px 0">No preview available</div>';
+      grid.innerHTML = `<div style="text-align:center;color:#d93025;font-size:0.8rem;padding:16px 0">${augEscape(d.error || 'No preview available')}</div>`;
       if (st) st.textContent = '';
       return;
     }
-    grid.innerHTML = d.previews.map(p => `
+    grid.innerHTML = d.previews.map((p, i) => `
+      <div style="border-bottom:1px solid #eee;padding-bottom:6px">
+      <div style="font-size:0.72rem;color:#777;margin-bottom:4px">Output ${i + 1} · source ep ${p.ep}</div>
+      ${(p.cameras || [{camera: '', original: p.original, augmented: p.augmented}]).map(c => `
+      <div style="font-size:0.7rem;color:${c.dropped ? '#a33' : '#555'};margin-top:6px">${augEscape(c.camera.replace('observation.images.', ''))} · ${c.dropped ? 'Black' : 'Active'}</div>
+      ${c.error ? `<div style="font-size:0.7rem;color:#a33">${augEscape(c.error)}</div>` : `
       <div style="display:flex;gap:6px;align-items:center">
-        <div style="font-size:0.68rem;color:#999;min-width:32px;text-align:right">Ep ${p.ep}</div>
         <div style="flex:1;text-align:center">
-          <img src="data:image/jpeg;base64,${p.original}" style="width:100%;border-radius:4px;border:1px solid #e0e0e0">
+          <img src="data:image/jpeg;base64,${c.original}" style="width:100%;border-radius:4px;border:1px solid #e0e0e0">
           <div style="font-size:0.6rem;color:#aaa">original</div>
         </div>
         <div style="font-size:0.8rem;color:#ccc">&rarr;</div>
         <div style="flex:1;text-align:center">
-          <img src="data:image/jpeg;base64,${p.augmented}" style="width:100%;border-radius:4px;border:2px solid #7b1fa2">
+          <img src="data:image/jpeg;base64,${c.augmented}" style="width:100%;border-radius:4px;border:2px solid #7b1fa2">
           <div style="font-size:0.6rem;color:#7b1fa2">augmented</div>
         </div>
+      </div>
+      `}`).join('')}
       </div>
     `).join('');
     if (st) st.textContent = '';
   } catch(e) {
+    if (requestId !== _augPreviewRequest) return;
     if (st) st.textContent = 'Error';
     console.error(e);
   }
@@ -3578,6 +3665,7 @@ async function vizDoAugment(srcName) {
 
   const ck = id => document.getElementById(id)?.checked || false;
   const techniques = {
+    camera_dropout: getCameraDropout(),
     occlusion: {enabled: ck('augOcclusionEnabled')},
     camera_shift: {enabled: ck('augCamEnabled'), perspective: ck('augCamPersp'), affine: ck('augCamAffine'), rotation: ck('augCamRot')},
     light_quality: {enabled: ck('augLightEnabled'), brightness: ck('augLightBright'), contrast: ck('augLightContrast'), saturation: ck('augLightSat'), color_jitter: ck('augLightJitter'), shadow: ck('augLightShadow'), noise: ck('augLightNoise'), blur: ck('augLightBlur')},
@@ -5458,6 +5546,10 @@ async function vizLoadEpisode() {
   if (augEp && !augEp.is_original) {
     const p = augEp;
     let details = [];
+    if (p.camera_dropout) {
+      const label = key => augEscape(key.replace('observation.images.', ''));
+      details.push(`<span style="font-weight:600">Camera Dropout:</span> active: ${p.camera_dropout.kept_cameras.map(label).join(', ')}; black: ${p.camera_dropout.dropped_cameras.map(label).join(', ') || 'none'}`);
+    }
     if (p.camera) {
       const cd = p.camera;
       let parts = [];
@@ -6070,6 +6162,7 @@ function _evalGetCurrentConfig() {
 
 let _evalConfigSaveTimer = null;
 function evalConfigChanged() {
+  evalSyncChallengeControls();
   evalScheduleChallengePreview();
   const st = document.getElementById('evalConfigSaveStatus');
   const config = _evalGetCurrentConfig();
@@ -6637,6 +6730,7 @@ function _evalCleanupTimers() {
 
 function _evalBuildBody() {
   const body = {
+    target_runs: parseInt(document.getElementById('evalTargetRuns').value) || 10,
     model_id: evalSelectedModel.id,
     model_name: evalSelectedModel.name,
     task: document.getElementById('evalTask').value,
@@ -6933,8 +7027,12 @@ function evalRenderResults() {
       if (r.aug_params) {
         const p = r.aug_params;
         // Support both flat (legacy) and nested {camera, light} format
-        if (p.camera || p.light || p.robot) {
+        if (p.camera || p.light || p.robot || p.camera_dropout) {
           const parts = [];
+          if (p.camera_dropout) {
+            const label = key => evalChallengeEscape(key.replace('observation.images.', ''));
+            parts.push(`<span style="color:#6a1b9a;font-weight:600">Camera Dropout:</span> Active: ${p.camera_dropout.kept_cameras.map(label).join(', ')}; Black: ${p.camera_dropout.dropped_cameras.map(label).join(', ') || 'none'}`);
+          }
           if (p.camera) {
             const cam = p.camera;
             const camParts = [];
@@ -7019,7 +7117,7 @@ function evalRenderResults() {
         <span style="font-size:0.8rem;font-weight:600;color:#444;width:46px;flex-shrink:0">#${r.run}</span>
         <span style="font-size:0.7rem;color:${color};font-weight:500;flex-shrink:0">${r.result}</span>
         ${r.video_filename?'<span style="font-size:0.7rem;color:#ff9800;flex-shrink:0" title="Video recorded">&#9658;</span>':''}
-        ${r.aug_params&&(r.aug_params.camera||r.aug_params.light||r.aug_params.robot)?'<span style="font-size:0.62rem;color:#6a1b9a;background:#f3e5f5;border-radius:3px;padding:1px 4px;flex-shrink:0" title="Challenge Environment">CH</span>':''}
+        ${r.aug_params&&(r.aug_params.camera||r.aug_params.light||r.aug_params.robot||r.aug_params.camera_dropout)?'<span style="font-size:0.62rem;color:#6a1b9a;background:#f3e5f5;border-radius:3px;padding:1px 4px;flex-shrink:0" title="Challenge Environment">CH</span>':''}
         <span style="flex:1"></span>
         ${hasDetail?`<span style="font-size:0.65rem;color:#aaa;flex-shrink:0" id="evalDetailBtn_${i}">&#9660; detail</span>`:''}
         <span style="font-size:0.7rem;color:#aaa;flex-shrink:0">${time}</span>

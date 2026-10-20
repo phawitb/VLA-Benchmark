@@ -237,7 +237,34 @@ def challenge_should_send_action(augment, step):
     return step >= int(((augment or {}).get("robot") or {}).get("trim", 0))
 
 
-from augmentation_core import _aug_frame
+from augmentation_core import _aug_frame, _apply_camera_dropout
+
+
+def apply_challenge_camera_images(obs, camera_names, augment, step, cv2, np):
+    """Transform policy observations, keeping dropped views black for the episode."""
+    applied = False
+    for camera_index, camera_name in enumerate(camera_names):
+        for key in (camera_name, f"observation.images.{camera_name}"):
+            if key not in obs or obs[key] is None:
+                continue
+            image = obs[key]
+            if hasattr(image, "detach"):
+                image = image.detach().cpu().numpy()
+            image = np.asarray(image)
+            if image.ndim == 3 and image.shape[0] in (3, 4) and image.shape[-1] not in (3, 4):
+                image = np.moveaxis(image, 0, -1)
+            if image.ndim != 3 or image.shape[-1] not in (3, 4):
+                continue
+            if image.dtype != np.uint8:
+                scale = 255.0 if image.size and float(image.max()) <= 1.0 else 1.0
+                image = np.clip(image * scale, 0, 255).astype(np.uint8)
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            rng = np.random.default_rng([augment.get("seed", 0), step, camera_index])
+            image = _aug_frame(image, augment.get("camera"), augment.get("light"), cv2, np, rng=rng)
+            image = _apply_camera_dropout(image, camera_name, augment, np)
+            obs[key] = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            applied = True
+    return applied
 
 def parse_args():
     p = argparse.ArgumentParser(description="Python VLA inference")
@@ -629,28 +656,7 @@ def main():
             if args._augment:
                 _aug_cam = args._augment.get("camera")
                 _aug_lit = args._augment.get("light")
-                _aug_applied = False
-                for _cam_index, _cam_name in enumerate(cameras_dict):
-                    for _cam_key in (_cam_name, f"observation.images.{_cam_name}"):
-                        if _cam_key not in obs or obs[_cam_key] is None:
-                            continue
-                        _img = obs[_cam_key]
-                        if hasattr(_img, "detach"):
-                            _img = _img.detach().cpu().numpy()
-                        _img = np.asarray(_img)
-                        if _img.ndim == 3 and _img.shape[0] in (3, 4) and _img.shape[-1] not in (3, 4):
-                            _img = np.moveaxis(_img, 0, -1)
-                        if _img.ndim != 3 or _img.shape[-1] not in (3, 4):
-                            continue
-                        if _img.dtype != np.uint8:
-                            _scale = 255.0 if _img.size and float(_img.max()) <= 1.0 else 1.0
-                            _img = np.clip(_img * _scale, 0, 255).astype(np.uint8)
-                        _img = cv2.cvtColor(_img, cv2.COLOR_RGB2BGR)
-                        _rng = np.random.default_rng([args._augment.get("seed", 0), step, _cam_index])
-                        _img = _aug_frame(_img, _aug_cam, _aug_lit, cv2, np, rng=_rng)
-                        _img = cv2.cvtColor(_img, cv2.COLOR_BGR2RGB)
-                        obs[_cam_key] = _img
-                        _aug_applied = True
+                _aug_applied = apply_challenge_camera_images(obs, cameras_dict, args._augment, step, cv2, np)
                 if step == 0 and _aug_applied:
                     print(f"[infer_python] Challenge env augmentation active: camera={list(_aug_cam.keys()) if _aug_cam else None} light={list(_aug_lit.keys()) if _aug_lit else None}", flush=True)
                 elif step == 0 and not _aug_applied:

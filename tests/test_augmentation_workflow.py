@@ -15,6 +15,130 @@ import main
 
 
 class AugmentationWorkflowTests(unittest.TestCase):
+    def add_views(self):
+        ds = self.data / 'source'
+        info_path = ds / 'meta/info.json'
+        info = json.loads(info_path.read_text())
+        meta_path = ds / 'meta/episodes/chunk-000/file-000.parquet'
+        meta = pq.read_table(meta_path).to_pylist()[0]
+        for view, width, height in [('wrist', 80, 60), ('side', 160, 120), ('front', 160, 120)]:
+            key = f'observation.images.{view}'
+            info['features'][key] = dict(dtype='video', shape=[height, width, 3])
+            path = ds / f'videos/{key}/chunk-000/file-000.mp4'
+            path.parent.mkdir(parents=True)
+            writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*'mp4v'), 10, (width, height))
+            for _ in range(5):
+                writer.write(np.full((height, width, 3), 200, np.uint8))
+            writer.release()
+            for field, value in [('chunk_index', 0), ('file_index', 0), ('from_timestamp', 0.), ('to_timestamp', .5)]:
+                meta[f'videos/{key}/{field}'] = value
+        info_path.write_text(json.dumps(info))
+        pq.write_table(pa.Table.from_pylist([meta]), meta_path)
+        return list(info['features'])
+
+    def test_dropout_preview_shows_all_views_and_cycles_per_output_episode(self):
+        keys = self.add_views()
+        result = self.client.post('/api/datasets/source/augment-preview', json={
+            'count': 4, 'techniques': {'camera_dropout': {'enabled': True, 'keep_count': 1}}}).json()
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(len(result['previews']), 4)
+        for index, preview in enumerate(result['previews']):
+            self.assertEqual(len(preview['cameras']), 4)
+            self.assertEqual(preview['camera_dropout']['kept_cameras'], [keys[index]])
+            for view in preview['cameras']:
+                frame = cv2.imdecode(np.frombuffer(base64.b64decode(view['augmented']), np.uint8), cv2.IMREAD_COLOR)
+                self.assertEqual(view['dropped'], view['camera'] != keys[index])
+                if view['dropped']:
+                    self.assertLess(frame.max(), 10)
+                else:
+                    self.assertGreater(frame.min(), 150)
+
+    def test_dropout_generation_blacks_entire_videos_and_preserves_shapes_and_actions(self):
+        keys = self.add_views()
+        source_video = self.data / f'source/videos/{keys[0]}/chunk-000/file-000.mp4'
+        before = source_video.read_bytes()
+        main._run_augmentation('source', 'dropout', 4, {
+            'camera_dropout': {'enabled': True, 'keep_count': 2}}, mode='fix')
+        self.assertIsNone(main.augment_state['error'])
+        saved = json.loads((self.configs / 'dropout.json').read_text())
+        expected = [keys[:2], keys[1:3], keys[2:], [keys[3], keys[0]]]
+        for index, kept in enumerate(expected):
+            episode = saved['episodes'][index]
+            self.assertFalse(episode['is_original'])
+            self.assertEqual(episode['camera_dropout']['kept_cameras'], kept)
+            for key in keys:
+                path = self.data / f'dropout/videos/{key}/chunk-000/file-{index:03d}.mp4'
+                cap = cv2.VideoCapture(str(path))
+                frames = []
+                while True:
+                    ok, frame = cap.read()
+                    if not ok:
+                        break
+                    frames.append(frame)
+                cap.release()
+                self.assertEqual(len(frames), 5)
+                self.assertEqual(frames[0].shape, (60, 80, 3) if key.endswith('wrist') else (120, 160, 3))
+                for frame in frames:
+                    if key not in kept:
+                        self.assertLess(frame.max(), 10)
+                    else:
+                        self.assertGreater(frame.min(), 150)
+        rows = pq.read_table(self.data / 'dropout/data/chunk-000/file-000.parquet').to_pylist()
+        self.assertEqual(len(rows), 20)
+        self.assertTrue(all(row['action'] == [1., 2.] for row in rows))
+        self.assertEqual(source_video.read_bytes(), before)
+
+    def test_dropout_invalid_request_is_rejected_before_creating_dataset(self):
+        for suffix, body in [('augment', {'name': 'invalid', 'target_episodes': 2}), ('augment-preview', {})]:
+            response = self.client.post(f'/api/datasets/source/{suffix}', json={**body,
+                'techniques': {'camera_dropout': {'enabled': True, 'keep_count': 0}}}).json()
+            self.assertFalse(response['ok'], response)
+            self.assertIn('Camera Dropout', response['error'])
+        self.assertFalse((self.data / 'invalid').exists())
+
+    def test_dropout_ratio_matches_preview_generation_and_saved_metadata(self):
+        keys = self.add_views()
+        techniques = {'camera_dropout': {'enabled': True, 'keep_count': 1, 'drop_camera_percent': 40}}
+        previews = self.client.post('/api/datasets/source/augment-preview', json={
+            'count': 5, 'target_episodes': 5, 'techniques': techniques}).json()['previews']
+        expected = [[keys[0]], keys, [keys[1]], keys, keys]
+        self.assertEqual([p['camera_dropout']['kept_cameras'] for p in previews], expected)
+        main._run_augmentation('source', 'mixed', 5, techniques, mode='fix')
+        self.assertIsNone(main.augment_state['error'])
+        saved = json.loads((self.configs / 'mixed.json').read_text())
+        self.assertEqual(saved['techniques']['camera_dropout']['drop_camera_percent'], 40)
+        self.assertEqual([ep['camera_dropout']['kept_cameras'] for ep in saved['episodes']], expected)
+        for index, kept in enumerate(expected):
+            for key in keys:
+                cap = cv2.VideoCapture(str(self.data / f'mixed/videos/{key}/chunk-000/file-{index:03d}.mp4'))
+                ok, frame = cap.read()
+                cap.release()
+                self.assertTrue(ok)
+                if key in kept:
+                    self.assertGreater(frame.min(), 150)
+                else:
+                    self.assertLess(frame.max(), 10)
+
+    def test_evaluation_dropout_preview_matches_live_parameters_for_every_view(self):
+        keys = self.add_views()
+        challenge = {'enabled': True, 'camera': {'enabled': False}, 'light': {'enabled': False},
+                     'camera_dropout': {'enabled': True, 'drop_camera_percent': 50, 'keep_count': 1}}
+        result = self.client.post('/api/eval/challenge-preview', json={
+            'dataset': 'source', 'count': 4, 'target_runs': 4, 'challenge_env': challenge}).json()
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(len(result['previews']), 16)
+        for preview in result['previews']:
+            episode = preview['challenge_episode']
+            self.assertEqual(preview['params'], main._eval_challenge_params(
+                challenge, episode, 30, 12, camera_keys=keys, total_episodes=4))
+            black = episode in (1, 3) and preview['camera'] != ('top' if episode == 1 else 'wrist')
+            self.assertEqual(preview['dropped'], black)
+            image = cv2.imdecode(np.frombuffer(base64.b64decode(preview['augmented']), np.uint8), cv2.IMREAD_COLOR)
+            if black:
+                self.assertLess(image.max(), 10)
+            else:
+                self.assertGreater(image.min(), 150)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

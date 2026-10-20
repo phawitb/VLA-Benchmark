@@ -147,6 +147,13 @@ app.include_router(make_libero_router(libero_service))
 atexit.register(libero_service.stop)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def homepage():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
 Path("data/eval_videos").mkdir(parents=True, exist_ok=True)
 app.mount("/data/eval_videos", StaticFiles(directory="data/eval_videos"), name="eval_videos")
 
@@ -2336,7 +2343,7 @@ async def remove_idle_dataset(name: str, request: Request):
 # Data Augmentation
 # ---------------------------------------------------------------------------
 
-from augmentation_core import _INTENSITY_SCALE
+from augmentation_core import _INTENSITY_SCALE, _camera_dropout_params
 
 
 from augmentation_core import _augp_camera
@@ -2414,7 +2421,7 @@ def _aug_episode_data(rows, robot_p):
     return rows
 
 
-def _aug_process_video(src_path, dst_path, from_ts, to_ts, fps, cam_p, light_p, vid_w, vid_h, expected_frames=None):
+def _aug_process_video(src_path, dst_path, from_ts, to_ts, fps, cam_p, light_p, vid_w, vid_h, expected_frames=None, blackout=False):
     duration = to_ts - from_ts
     if duration <= 0 or not Path(src_path).exists():
         return 0.0, 0.0, 0
@@ -2445,7 +2452,9 @@ def _aug_process_video(src_path, dst_path, from_ts, to_ts, fps, cam_p, light_p, 
             if len(raw) < frame_size:
                 break
             frame = np.frombuffer(raw, dtype=np.uint8).reshape(vid_h, vid_w, 3)
-            if cam_p or light_p:
+            if blackout:
+                frame = np.zeros_like(frame)
+            elif cam_p or light_p:
                 frame = _aug_frame(frame, cam_p, light_p)
             writer.stdin.write(frame.tobytes())
             count += 1
@@ -2481,12 +2490,8 @@ def _run_augmentation(src_name, new_name, target_episodes, techniques, intensity
         info = json.loads((src_dir / "meta" / "info.json").read_text())
         fps = info.get("fps", 30)
         cam_keys = _get_camera_keys(info)
-
-        # Get video dimensions from first camera feature
-        vid_h, vid_w = 240, 320
-        if cam_keys:
-            shape = info.get("features", {}).get(cam_keys[0], {}).get("shape", [240, 320, 3])
-            vid_h, vid_w = shape[0], shape[1]
+        dropout_opts = techniques.get("camera_dropout", {})
+        _camera_dropout_params(cam_keys, dropout_opts, 0, total_episodes=target_episodes)
 
         # Read tasks
         src_tasks = []
@@ -2593,6 +2598,7 @@ def _run_augmentation(src_name, new_name, target_episodes, techniques, intensity
                 robot_p = None if is_original else (
                     _augp_robot(robot_opts, len(frames), fps, intensity, robot_fixed) if robot_opts.get("enabled") else None
                 )
+                dropout_p = _camera_dropout_params(cam_keys, dropout_opts, sched_idx, total_episodes=target_episodes)
 
                 # Record per-episode augmentation info
                 def _serialize_params(p):
@@ -2605,7 +2611,8 @@ def _run_augmentation(src_name, new_name, target_episodes, techniques, intensity
                 aug_ep_info.append({
                     "new_ep": new_ep_idx,
                     "source_ep": old_ep,
-                    "is_original": is_original,
+                    "is_original": is_original and not (dropout_p and dropout_p["dropped_cameras"]),
+                    "camera_dropout": dropout_p,
                     "camera": _serialize_params(cam_p),
                     "light": _serialize_params(light_p),
                     "robot": _serialize_params(robot_p),
@@ -2650,6 +2657,8 @@ def _run_augmentation(src_name, new_name, target_episodes, techniques, intensity
                 }
 
                 for cam in cam_keys:
+                    shape = info["features"][cam].get("shape", [240, 320, 3])
+                    cam_h, cam_w = shape[:2]
                     cam_key = f"videos/{cam}"
                     orig_chunk = ep_meta.get(f"{cam_key}/chunk_index", 0) if ep_meta else 0
                     orig_file = ep_meta.get(f"{cam_key}/file_index", 0) if ep_meta else 0
@@ -2665,8 +2674,9 @@ def _run_augmentation(src_name, new_name, target_episodes, techniques, intensity
                             src_vid, dst_vid, orig_from, orig_to, fps,
                             cam_p if not is_original else None,
                             light_p if not is_original else None,
-                            vid_w, vid_h,
+                            cam_w, cam_h,
                             expected_frames=len(frames),
+                            blackout=bool(dropout_p and cam in dropout_p["dropped_cameras"]),
                         )
                     else:
                         new_from, new_to = 0.0, 0.0
@@ -2771,6 +2781,14 @@ async def augment_preview(name: str, request: Request):
     cam_keys = _get_camera_keys(info)
     if not cam_keys:
         return {"ok": False, "error": "No camera keys found"}
+    dropout_opts = techniques.get("camera_dropout", {})
+    target_episodes = body.get("target_episodes", max(1, int(num_previews)))
+    if type(target_episodes) is not int or target_episodes < 1:
+        return {"ok": False, "error": "Invalid target episodes"}
+    try:
+        _camera_dropout_params(cam_keys, dropout_opts, 0, total_episodes=target_episodes)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
 
     total_eps = info.get("total_episodes", 0)
     if total_eps == 0:
@@ -2791,7 +2809,12 @@ async def augment_preview(name: str, request: Request):
     ep_meta_list.sort(key=lambda r: r.get("episode_index", 0))
 
     # Pick random episodes
-    indices = random.sample(range(len(ep_meta_list)), min(num_previews, len(ep_meta_list)))
+    if not ep_meta_list:
+        return {"ok": False, "error": "No episode metadata"}
+    num_previews = max(1, min(int(num_previews), 10, target_episodes))
+    indices = (random.choices(range(len(ep_meta_list)), k=num_previews)
+               if dropout_opts.get("enabled") else
+               random.sample(range(len(ep_meta_list)), min(num_previews, len(ep_meta_list))))
 
     cam_opts = techniques.get("camera", {})
     light_opts = techniques.get("light", {})
@@ -2801,49 +2824,41 @@ async def augment_preview(name: str, request: Request):
     fixed_params = body.get("fixed_params") if mode == "fix" else None
     cam_fixed = fixed_params.get("camera") if fixed_params else None
     light_fixed = fixed_params.get("light") if fixed_params else None
-    first_cam = cam_keys[0]
-
     previews = []
-    for idx in indices:
+    for output_idx, idx in enumerate(indices):
         em = ep_meta_list[idx]
-        ck = f"videos/{first_cam}"
-        chunk = em.get(f"{ck}/chunk_index", 0)
-        fi = em.get(f"{ck}/file_index", 0)
-        from_ts = em.get(f"{ck}/from_timestamp", 0.0)
-        vid_path = src_dir / "videos" / first_cam / f"chunk-{chunk:03d}" / f"file-{fi:03d}.mp4"
-        if not vid_path.exists():
-            continue
-
-        cap = cv2.VideoCapture(str(vid_path))
-        if from_ts > 0:
-            cap.set(cv2.CAP_PROP_POS_MSEC, from_ts * 1000)
-        ret, frame = cap.read()
-        cap.release()
-        if not ret or frame is None:
-            continue
-
-        # Resize for preview (max 160px wide)
-        h, w = frame.shape[:2]
-        scale = min(160 / w, 120 / h)
-        small = cv2.resize(frame, (int(w * scale), int(h * scale)))
-
-        # Encode original
-        _, buf_orig = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        b64_orig = base64.b64encode(buf_orig).decode()
-
-        # Apply augmentation
+        dropout_p = _camera_dropout_params(cam_keys, dropout_opts, output_idx, total_episodes=target_episodes)
         cam_p = _augp_camera(cam_opts, intensity, cam_fixed) if cam_opts.get("enabled") else None
         light_p = _augp_light(light_opts, intensity, light_fixed) if light_opts.get("enabled") else None
-        aug_frame = _aug_frame(small, cam_p, light_p)
-
-        _, buf_aug = cv2.imencode(".jpg", aug_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        b64_aug = base64.b64encode(buf_aug).decode()
-
-        previews.append({
-            "ep": em.get("episode_index", idx),
-            "original": b64_orig,
-            "augmented": b64_aug,
-        })
+        cameras = []
+        for camera in cam_keys:
+            ck = f"videos/{camera}"
+            chunk = em.get(f"{ck}/chunk_index", 0)
+            fi = em.get(f"{ck}/file_index", 0)
+            from_ts = em.get(f"{ck}/from_timestamp", 0.0)
+            vid_path = src_dir / "videos" / camera / f"chunk-{chunk:03d}" / f"file-{fi:03d}.mp4"
+            dropped = bool(dropout_p and camera in dropout_p["dropped_cameras"])
+            cap = cv2.VideoCapture(str(vid_path))
+            if from_ts > 0:
+                cap.set(cv2.CAP_PROP_POS_MSEC, from_ts * 1000)
+            ret, frame = cap.read()
+            cap.release()
+            if not ret or frame is None:
+                cameras.append({"camera": camera, "dropped": dropped, "error": "Video unavailable"})
+                continue
+            h, w = frame.shape[:2]
+            scale = min(160 / w, 120 / h)
+            small = cv2.resize(frame, (int(w * scale), int(h * scale)))
+            _, buf_orig = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            aug_frame = np.zeros_like(small) if dropped else _aug_frame(small, cam_p, light_p)
+            _, buf_aug = cv2.imencode(".jpg", aug_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            cameras.append({"camera": camera, "dropped": dropped,
+                "original": base64.b64encode(buf_orig).decode(),
+                "augmented": base64.b64encode(buf_aug).decode()})
+        first = next((c for c in cameras if "original" in c), {})
+        previews.append({"ep": em.get("episode_index", idx), "output_episode": output_idx,
+            "camera_dropout": dropout_p, "cameras": cameras,
+            "original": first.get("original"), "augmented": first.get("augmented")})
 
     return {"ok": True, "previews": previews}
 
@@ -2862,6 +2877,11 @@ async def start_augment(name: str, request: Request):
     src_dir = DATA_DIR / name
     if not (src_dir / "meta" / "info.json").exists():
         return {"ok": False, "error": "Source dataset not found"}
+    try:
+        info = json.loads((src_dir / "meta" / "info.json").read_text())
+        _camera_dropout_params(_get_camera_keys(info), techniques.get("camera_dropout", {}), 0)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     if (DATA_DIR / new_name).exists():
         return {"ok": False, "error": f"Dataset '{new_name}' already exists"}
     if not target_episodes or target_episodes < 1:
@@ -4280,7 +4300,7 @@ from augmentation_core import _eval_challenge_params
 def _eval_challenge_preview(body):
     """Preview saved dataset images using the evaluation worker's exact transform."""
     import cv2
-    from infer_python import _aug_frame as worker_aug_frame
+    from infer_python import _aug_frame as worker_aug_frame, _apply_camera_dropout
 
     name = str(body.get("dataset", ""))
     source = (DATA_DIR / name).resolve()
@@ -4300,15 +4320,23 @@ def _eval_challenge_preview(body):
             cameras = [c for c in cameras if c.rsplit(".", 1)[-1] == selected[2:]]
         if not cameras:
             return {"ok": False, "error": "No matching cameras in this dataset"}
+        target_runs = max(1, int(body.get("target_runs", 10)))
+        dropout_enabled = bool((body.get("challenge_env") or {}).get("enabled") and
+                               ((body.get("challenge_env") or {}).get("camera_dropout") or {}).get("enabled"))
+        if dropout_enabled:
+            count = min(count, target_runs)
         episodes = []
         for path in sorted((source / "meta/episodes").rglob("*.parquet")):
             episodes.extend(pq.read_table(path).to_pylist())
         episodes.sort(key=lambda row: row.get("episode_index", 0))
-        samples = random.Random(episode).sample(episodes, min(count, len(episodes)))
+        sample_rng = random.Random(episode)
+        samples = (sample_rng.choices(episodes, k=count) if dropout_enabled and episodes and len(episodes) < count
+                   else sample_rng.sample(episodes, min(count, len(episodes))))
         previews = []
         for offset, meta in enumerate(samples):
             challenge_episode = episode + offset
-            params = _eval_challenge_params(body.get("challenge_env"), challenge_episode, fps, duration)
+            params = _eval_challenge_params(body.get("challenge_env"), challenge_episode, fps, duration,
+                camera_keys=cameras, total_episodes=target_runs)
             for camera_index, camera in enumerate(cameras):
                 key = f"videos/{camera}"
                 chunk = int(meta.get(f"{key}/chunk_index", 0))
@@ -4330,6 +4358,7 @@ def _eval_challenge_preview(body):
                 values = params or {}
                 augmented = worker_aug_frame(frame, values.get("camera"), values.get("light"), cv2, np,
                     rng=np.random.default_rng([challenge_episode, 0, camera_index]))
+                augmented = _apply_camera_dropout(augmented, camera, values, np)
                 scale = min(1, 320 / width, 240 / height)
                 size = (max(1, round(width * scale)), max(1, round(height * scale)))
                 frame, augmented = cv2.resize(frame, size), cv2.resize(augmented, size)
@@ -4340,6 +4369,7 @@ def _eval_challenge_preview(body):
                     return base64.b64encode(encoded).decode()
                 previews.append({"source_episode": meta.get("episode_index", 0),
                     "challenge_episode": challenge_episode, "camera": camera.rsplit(".", 1)[-1],
+                    "dropped": camera in (values.get("camera_dropout") or {}).get("dropped_cameras", []),
                     "original": encode(frame), "augmented": encode(augmented), "params": params})
         if not previews:
             return {"ok": False, "error": "No readable video frames in this dataset"}
@@ -4366,23 +4396,24 @@ async def _eval_start_owned(body: dict):
     n_action_steps = int(body.get("n_action_steps", 0))
     duration = max(1, int(body.get("duration", 12)))
 
-    if teleop_state["running"]:
-        await teleop_stop()
-    if robot_state["connected"]:
-        disconnect_robot()
-
-    augment_params = _eval_challenge_params(
-        body.get("challenge_env"), int(body.get("episode", 1)), fps, duration)
-    augment_seed = augment_params["seed"] if augment_params else None
-
-    reset_pos = _eval_load_reset_position()
-
     cfg = load_config()
     robot_cfg = cfg.get("robot", {})
     all_cams = robot_cfg.get("cameras", {})
 
     selected_cams = _eval_filter_cameras(all_cams, cam_select)
     cams = selected_cams
+    try:
+        augment_params = _eval_challenge_params(
+            body.get("challenge_env"), int(body.get("episode", 1)), fps, duration,
+            camera_keys=list(cams), total_episodes=int(body.get("target_runs", 10)))
+    except (ValueError, TypeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    augment_seed = augment_params["seed"] if augment_params else None
+    if teleop_state["running"]:
+        await teleop_stop()
+    if robot_state["connected"]:
+        disconnect_robot()
+    reset_pos = _eval_load_reset_position()
 
     record = get_model_record(load_local_models(ROOT / "models", set(all_cams)), str(model_id))
     if not record or not record.get("selectable"):

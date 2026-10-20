@@ -1,4 +1,43 @@
 // One schema drives the challenge controls, saved config, and run payload.
+let evalChallengeCameraKeys = [];
+let evalDropoutSelection = null;
+let evalDropoutConfigured = false;
+let evalDropoutRenderedKeys = '';
+
+function evalDropoutAvailableCameras() {
+  const selected = document.getElementById('evalCamCount')?.value || 'all';
+  if (selected.startsWith('1-')) return evalChallengeCameraKeys.filter(key => key === 'observation.images.' + selected.slice(2));
+  if (selected.startsWith('1')) return evalChallengeCameraKeys.slice(0, 1);
+  return evalChallengeCameraKeys;
+}
+
+function evalSetChallengeCameras(names) {
+  evalChallengeCameraKeys = names.map(key => key.startsWith('observation.images.') ? key : 'observation.images.' + key);
+  evalRenderDropoutCameras();
+  evalSyncChallengeControls();
+}
+
+function evalRenderDropoutCameras() {
+  const keys = evalDropoutAvailableCameras();
+  evalDropoutRenderedKeys = JSON.stringify(keys);
+  const pool = evalDropoutSelection ?? keys;
+  document.getElementById('evalChDropoutCameras').innerHTML = keys.map((key, i) =>
+    `<label style="margin-right:12px"><input type="checkbox" ${pool.includes(key) ? 'checked' : ''} onchange="evalDropoutCameraChanged(${i},this.checked)"> ${evalChallengeEscape(key.replace('observation.images.', ''))}</label>`).join('');
+}
+
+function evalDropoutCameraChanged(index, checked) {
+  const keys = evalDropoutAvailableCameras();
+  const pool = new Set(evalDropoutSelection ?? keys);
+  if (checked) pool.add(keys[index]); else pool.delete(keys[index]);
+  evalDropoutSelection = [...pool];
+  evalDropoutChanged();
+}
+
+function evalDropoutChanged() {
+  evalDropoutConfigured = true;
+  evalChallengeChanged();
+}
+
 const evalChallengeGroups = {
   camera: {title:'Camera Shift', id:'evalChCamEnabled', enabled:true, options:[
     ['perspective','Perspective','evalChCamPersp',true],
@@ -71,7 +110,7 @@ function evalRenderChallenge() {
       </div>
       <div id="evalChallengeIntensityRow" style="flex:1">
         <label class="form-label" for="evalChallengeIntensity">Intensity (1–5): <output id="evalChallengeIntensityValue">3</output></label>
-        <input type="range" id="evalChallengeIntensity" min="1" max="5" value="3" style="width:100%" oninput="evalChallengeChanged()">
+        <input type="range" id="evalChallengeIntensity" min="1" max="5" value="3" style="width:100%" oninput="evalChallengeChanged(true)">
         <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:#999"><span>Subtle</span><span>Strong</span></div>
       </div>
     </div>
@@ -93,6 +132,17 @@ function evalRenderChallenge() {
         ${group==='light'?'<label data-challenge-field="light" data-technique="shadow" style="font-size:0.75rem;display:flex;justify-content:space-between;margin-top:6px">Shadow direction <select id="evalFix_light_shadow_dir" onchange="evalChallengeChanged()"><option>left</option><option>right</option><option>top</option><option>bottom</option></select></label>':''}
         </div>
       </div>`).join('')}
+      <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:10px">
+        <label style="font-weight:600;font-size:0.82rem"><input type="checkbox" id="evalChDropoutEnabled" onchange="evalDropoutChanged()"> Camera Dropout</label>
+        <div style="font-size:0.75rem;color:#777;margin:6px 0">Keep inactive views black throughout each episode. Other episodes use all cameras.</div>
+        <label style="font-size:0.8rem">Episodes with dropped cameras (%) <input id="evalChDropoutPercent" type="number" min="0" max="100" step="1" value="50" style="width:64px" oninput="evalDropoutChanged()"></label>
+        <div style="font-size:0.72rem;color:#888;margin:5px 0">Higher Intensity drops views in more episodes. Changing Intensity resets this default; you can edit it manually.</div>
+        <div style="font-size:0.78rem;margin-top:8px">Camera pool for dropout episodes (unchecked views black)</div>
+        <div id="evalChDropoutCameras" style="font-size:0.8rem;margin:6px 0"></div>
+        <label style="font-size:0.8rem">Active cameras per episode <input id="evalChDropoutKeep" type="number" min="1" value="1" style="width:58px" oninput="evalDropoutChanged()"></label>
+        <select id="evalChDropoutMode" aria-label="Camera Dropout selection" class="form-input" style="width:auto;margin-top:6px" onchange="evalDropoutChanged()"><option value="cycle">Rotate evenly</option><option value="random">Random subset per episode</option></select>
+        <div id="evalChDropoutHint" role="status" style="font-size:0.72rem;color:#777;margin-top:6px"></div>
+      </div>
     </div>
     </section>
     <section class="eval-challenge-preview" aria-label="Challenge preview">
@@ -111,6 +161,19 @@ function evalRenderChallenge() {
 }
 
 function evalSyncChallengeControls() {
+  const cameraKeys = evalDropoutAvailableCameras();
+  if (JSON.stringify(cameraKeys) !== evalDropoutRenderedKeys) evalRenderDropoutCameras();
+  const dropoutEnabled = document.getElementById('evalChDropoutEnabled').checked;
+  const pool = evalDropoutSelection ?? cameraKeys;
+  const keep = document.getElementById('evalChDropoutKeep');
+  keep.max = Math.max(1, pool.length);
+  if (Number(keep.value) > Number(keep.max)) keep.value = keep.max;
+  for (const id of ['evalChDropoutPercent', 'evalChDropoutKeep', 'evalChDropoutMode']) document.getElementById(id).disabled = !dropoutEnabled;
+  const total = Number(document.getElementById('evalTargetRuns')?.value) || 10;
+  const dropped = Math.round(total * Number(document.getElementById('evalChDropoutPercent').value) / 100);
+  document.getElementById('evalChDropoutHint').textContent = cameraKeys.length < 2 ? 'Camera Dropout requires at least 2 active evaluation cameras.' :
+    !pool.length ? 'Select at least one camera.' : pool.some(key => !cameraKeys.includes(key)) ? 'Some selected cameras are unavailable. Update the camera pool before running.' :
+    `${dropped} dropout / ${total - dropped} with all cameras (Target Runs: ${total}). Dropout episodes keep ${keep.value} active; other views stay black. Rounded to whole episodes.`;
   const enabledToggle = document.getElementById('evalChallengeDialogEnabled');
   if (enabledToggle) enabledToggle.checked = document.getElementById('evalChallengeEnabled').checked;
   const fix = document.getElementById('evalChallengeMode').value === 'fix';
@@ -151,7 +214,9 @@ function evalSetChallengeMode(mode) {
   evalChallengeChanged();
 }
 
-function evalChallengeChanged() {
+function evalChallengeChanged(resetDropoutDefault = false) {
+  if (resetDropoutDefault) document.getElementById('evalChDropoutPercent').value =
+    ({1:10,2:30,3:50,4:70,5:90})[Number(document.getElementById('evalChallengeIntensity').value)] ?? 50;
   evalSyncChallengeControls();
   evalConfigChanged();
 }
@@ -165,6 +230,15 @@ function evalGetChallengeConfig() {
   for (const [group,spec] of Object.entries(evalChallengeGroups)) {
     config[group] = {enabled: document.getElementById(spec.id).checked};
     for (const [key,,id] of spec.options) config[group][key] = document.getElementById(id).checked;
+  }
+  if (evalDropoutConfigured || document.getElementById('evalChDropoutEnabled').checked) {
+    config.camera_dropout = {
+      enabled: document.getElementById('evalChDropoutEnabled').checked,
+      drop_camera_percent: Number(document.getElementById('evalChDropoutPercent').value),
+      keep_count: Number(document.getElementById('evalChDropoutKeep').value || 1),
+      mode: document.getElementById('evalChDropoutMode').value || 'cycle',
+      cameras: evalDropoutSelection ?? evalDropoutAvailableCameras(),
+    };
   }
   const fixed = {camera:{},light:{},robot:{}};
   const occ = {};
@@ -185,6 +259,15 @@ function evalSetChallengeConfig(config = {}) {
   document.getElementById('evalChallengeEnabled').checked = !!config.enabled;
   document.getElementById('evalChallengeMode').value = config.mode === 'fix' ? 'fix' : 'random';
   document.getElementById('evalChallengeIntensity').value = config.intensity ?? 3;
+  const dropout = config.camera_dropout || {};
+  evalDropoutConfigured = !!config.camera_dropout;
+  evalDropoutSelection = dropout.cameras ?? null;
+  document.getElementById('evalChDropoutEnabled').checked = !!dropout.enabled;
+  document.getElementById('evalChDropoutPercent').value = dropout.drop_camera_percent ??
+    ({1:10,2:30,3:50,4:70,5:90})[config.intensity ?? 3];
+  document.getElementById('evalChDropoutKeep').value = dropout.keep_count ?? 1;
+  document.getElementById('evalChDropoutMode').value = dropout.mode || 'cycle';
+  evalRenderDropoutCameras();
   for (const [group,spec] of Object.entries(evalChallengeGroups)) {
     const values = config[group] || {};
     document.getElementById(spec.id).checked = values.enabled ?? spec.enabled;
@@ -211,6 +294,7 @@ function evalOpenChallengeSetup() {
   if (dialog.open) return;
   evalChallengeDialogGeneration++;
   document.getElementById('evalChallengeBody').style.display = '';
+  // Refresh the count after Target Runs or the active camera selection changes.
   evalSyncChallengeControls();
   dialog.showModal();
   evalLoadChallengePreviewSources();
@@ -289,6 +373,7 @@ async function evalUpdateChallengePreview() {
     const response = await fetch('/api/eval/challenge-preview', {
       method:'POST', headers:{'Content-Type':'application/json'}, signal:evalChallengePreviewController.signal,
       body:JSON.stringify({dataset, count:5,
+        target_runs:Number(document.getElementById('evalTargetRuns').value) || 10,
         episode:Math.max(1, Number(document.getElementById('evalChallengePreviewEpisode').value) || 1),
         fps:Number(document.getElementById('evalFps').value) || 30,
         duration:Number(document.getElementById('evalDuration').value) || 12,
@@ -303,13 +388,14 @@ async function evalUpdateChallengePreview() {
     if (!data.ok) throw new Error(data.error || 'Unable to generate preview');
     grid.innerHTML = (data.previews || []).map(p => {
       const robot = p.params?.robot;
+      const dropout = p.params?.camera_dropout;
       const robotInfo = robot ? [
         `Trim: ${robot.trim || 0} frames`,
         `Joint offset: ${(robot.joint_offset || []).map(v => Number(v).toFixed(2)).join(', ') || 'off'}`,
         `Jitter sigma: ${Number(robot.jitter_s || 0).toFixed(2)}`,
       ].join(' · ') : 'Robot Noise: off';
       return `<div style="border:1px solid #e0e0e0;border-radius:6px;padding:8px">
-        <div style="font-size:0.73rem;color:#666;margin-bottom:5px">Source ep ${evalChallengeEscape(p.source_episode)} · ${evalChallengeEscape(p.camera)} · Challenge ep ${evalChallengeEscape(p.challenge_episode)}</div>
+        <div style="font-size:0.73rem;color:#666;margin-bottom:5px">Source ep ${evalChallengeEscape(p.source_episode)} · ${evalChallengeEscape(p.camera)} · Challenge ep ${evalChallengeEscape(p.challenge_episode)}${dropout ? (p.dropped ? ' · Black' : ' · Active') : ''}</div>
         <div style="display:flex;gap:8px">
           <div style="flex:1;min-width:0"><img alt="Original" src="data:image/jpeg;base64,${p.original}" style="width:100%;border-radius:4px"><div style="font-size:0.7rem;color:#888">Original</div></div>
           <div style="flex:1;min-width:0"><img alt="Challenge preview" src="data:image/jpeg;base64,${p.augmented}" style="width:100%;border-radius:4px"><div style="font-size:0.7rem;color:#6a1b9a">Challenge</div></div>

@@ -7,6 +7,41 @@ import numpy as np
 
 _INTENSITY_SCALE = {1: .25, 2: .5, 3: 1., 4: 1.5, 5: 2.}
 
+
+def _camera_dropout_params(camera_keys, opts, episode_index, *, rng=None, total_episodes=100):
+    """Choose one stable set of visible views for an entire output episode."""
+    if not opts.get("enabled"):
+        return None
+    pool = opts.get("cameras", list(camera_keys))
+    if (not isinstance(pool, list) or not pool
+            or any(key not in camera_keys for key in pool)
+            or len(set(pool)) != len(pool)):
+        raise ValueError("Camera Dropout: select valid, unique dataset cameras")
+    keep = opts.get("keep_count", 1)
+    if type(keep) is not int or not 1 <= keep <= len(pool):
+        raise ValueError("Camera Dropout: keep_count must be between 1 and the selected camera count")
+    mode = opts.get("mode", "cycle")
+    if mode not in ("cycle", "random"):
+        raise ValueError("Camera Dropout: mode must be cycle or random")
+    percent_key = "drop_camera_percent" if "drop_camera_percent" in opts else "full_camera_percent"
+    percent = opts.get(percent_key, 0)
+    if type(percent) not in (int, float) or not 0 <= percent <= 100:
+        raise ValueError(f"Camera Dropout: {percent_key} must be between 0 and 100")
+    # Spread an exact (nearest whole episode) quota throughout the output.
+    count = int(total_episodes * percent / 100 + .5)
+    full_count = total_episodes - count if percent_key == "drop_camera_percent" else count
+    full_before = episode_index * full_count // total_episodes
+    if (episode_index + 1) * full_count // total_episodes > full_before:
+        return {"kept_cameras": list(camera_keys), "dropped_cameras": []}
+    dropout_index = episode_index - full_before
+    if mode == "cycle":
+        kept = [pool[(dropout_index + i) % len(pool)] for i in range(keep)]
+    elif mode == "random":
+        kept = (rng if rng is not None else random).sample(pool, keep)
+    return {"kept_cameras": kept,
+            "dropped_cameras": [key for key in camera_keys if key not in kept]}
+
+
 def _augp_camera(opts, intensity=3, fixed=None, *, rng=None, np_rng=None):
     rng = rng if rng is not None else random
     np_rng = np_rng if np_rng is not None else np.random
@@ -116,7 +151,7 @@ def _augp_robot(opts, n_frames, fps, intensity=3, fixed=None, *, rng=None):
     p["fps"] = fps
     return p or None
 
-def _eval_challenge_params(config, episode, fps, duration):
+def _eval_challenge_params(config, episode, fps, duration, *, camera_keys=None, total_episodes=100):
     """Build one reproducible challenge without changing process-wide RNG state."""
     if not config or not config.get("enabled"):
         return None
@@ -146,10 +181,32 @@ def _eval_challenge_params(config, episode, fps, duration):
     elif robot_p and robot.get("random_start") and "trim" not in robot_p and n_frames > 1:
         robot_p["trim"] = rng.randint(1, min(n_frames - 1, max(1, int(n_frames * .12 * _INTENSITY_SCALE[intensity]))))
     params = {"seed": episode, "mode": mode}
+    dropout = config.get("camera_dropout") or {}
+    if dropout.get("enabled"):
+        if type(total_episodes) is not int or total_episodes < 1:
+            raise ValueError("Camera Dropout: target runs must be a positive integer")
+        canonical = lambda key: key if key.startswith("observation.images.") else f"observation.images.{key}"
+        keys = [canonical(key) for key in (camera_keys or [])]
+        if len(keys) < 2:
+            raise ValueError("Camera Dropout requires at least 2 active evaluation cameras")
+        options = {"drop_camera_percent": {1:10, 2:30, 3:50, 4:70, 5:90}[intensity], **dropout}
+        if "cameras" in options:
+            options["cameras"] = [canonical(key) for key in options["cameras"]]
+        params["camera_dropout"] = _camera_dropout_params(keys, options,
+            max(0, int(episode) - 1) % total_episodes,
+            total_episodes=total_episodes, rng=random.Random(f"camera_dropout:{episode}"))
     for group, values in [("camera", cam_p), ("light", light_p), ("robot", robot_p)]:
         if values:
             params[group] = {k: v.tolist() if hasattr(v, "tolist") else v for k, v in values.items()}
     return params if len(params) > 2 else None
+
+
+def _apply_camera_dropout(frame, camera_name, params, np=None):
+    if np is None:
+        import numpy as np
+    key = camera_name if camera_name.startswith("observation.images.") else f"observation.images.{camera_name}"
+    dropped = (params.get("camera_dropout") or {}).get("dropped_cameras", [])
+    return np.zeros_like(frame) if key in dropped else frame
 
 
 def _aug_frame(frame, cam_p, light_p, cv2=None, np=None, rng=None):
